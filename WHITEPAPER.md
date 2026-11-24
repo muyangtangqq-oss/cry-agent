@@ -95,6 +95,33 @@ Overall accuracy is flat because hungry is 73% of the corpus; the gain is in
 minority recall. The augmented model is now the production model; the previous
 weights are kept as `*.pre_aug.bak`.
 
+#### Leave-one-corpus-out (critical result)
+
+Random segment CV mixes corpora. A stricter test holds out one entire corpus
+and evaluates only the five labels shared by all three sources:
+
+| Evaluation | n | Accuracy | Balanced | Majority baseline |
+|---|---:|---:|---:|---:|
+| Group 5-fold by recording | 4,993 | 76.6% | 41.9% | 74.5% |
+| LOCO donate | 2,492 | 79.6% | 22.6% | 83.3% |
+| LOCO DBL | 482 | 20.3% | 19.3% | 21.0% |
+| LOCO DynamicSuperb | 2,019 | 21.3% | 36.2% | 76.4% |
+| **LOCO mean** | | **40.4%** | **26.0%** | **74.5%** |
+
+The model is worse than always predicting the training majority class on
+**all three** held-out corpora. Group CV is only +2.1 pp over its majority
+baseline. This means the current features/classifier are learning corpus
+identity and class frequency, not a transferable cry signature.
+
+Consequences:
+
+- In-corpus CV (79.4%) and the held-in DBL number (97.0%) must not be quoted
+  as cross-dataset or cross-home accuracy.
+- The production classifier is a within-corpus prototype, not a validated
+  general cry-cause model.
+- The family pilot is now a necessity, not a nice-to-have.
+- See `reports/loco_cv.md` and `test_loco.py`.
+
 ### Multimodal Fusion
 
 | Scenario | Audio | Vision | Result | Mechanism |
@@ -212,7 +239,11 @@ This is deliberately local-first. No family data has been collected yet.
   pilot kit is ready, but no family has been enrolled yet. Real home noise,
   microphone placement, and baby variability remain untested.
 - **Segment-level CV:** clips from the same recording can cross folds, so CV is
-  an upper bound. A leave-one-corpus-out and household holdout are still needed.
+  an upper bound. LOCO is now implemented; a household holdout still requires
+  pilot data.
+- **Severe cross-corpus domain shift:** LOCO mean is 40.4% accuracy / 26.0%
+  balanced, below the 74.5% majority baseline. The current model is not
+  transferable across collection setups.
 
 ### Roadmap
 
@@ -225,6 +256,9 @@ This is deliberately local-first. No family data has been collected yet.
 4. ⏳ **Model export:** SVM → ONNX/TFLite for optimized edge inference.
 5. ⏳ **Multi-baby tracking:** ByteTrack + ReID for multi-child scenarios.
 6. ⏳ **Long-term pattern discovery:** weekly/monthly anomaly detection.
+7. ⏳ **Domain adaptation:** fix the LOCO collapse with label-semantics audit,
+   channel/room augmentation, domain-invariant features, and per-family
+   calibration.
 
 ## 8. Reproduce
 
@@ -245,6 +279,7 @@ python train_augmented.py   # minority augmentation + CV comparison
 python tachyone_server.py 8901 &
 python test_full_pipeline.py
 python test_scenario_engine.py
+python test_loco.py
 python test_augment.py
 python test_pilot.py
 

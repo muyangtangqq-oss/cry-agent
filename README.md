@@ -73,6 +73,7 @@ python live_camera.py --replay-audio <wav> --postures rooting
 | `configs/*.yaml` | Baby, elderly-care, and pet-behavior scenarios |
 | `augment.py` | Pitch / stretch / gain / noise augmentation |
 | `train_augmented.py` | Minority-class training + baseline comparison |
+| `test_loco.py` | Group CV + leave-one-corpus-out evaluation |
 | `pilot.py` | Local 3–5 family pilot store, feedback, report, export |
 | `vision_mediapipe.py` | MediaPipe BlazePose posture detector |
 | `vision_detector.py` | Annotation-based fallback (no camera) |
@@ -121,6 +122,8 @@ python main.py --scenario elderly_care --postures lying_down \
   --sensor floor_pressure=60 --json
 python test_scenario_engine.py   # baby regression + elderly/pet extension
 CRY_AGENT_SCENARIO=elderly_care python live_camera.py --camera 0
+
+python test_loco.py             # group CV + leave-one-corpus-out report
 ```
 
 Adding a domain means adding a YAML file; training its audio classifier is the
@@ -159,6 +162,8 @@ with 5 simulated families.
 | CV Balanced Accuracy | 52.3% (46.0% before augmentation) |
 | Minority recall | startle 58%, temperature 67%, pain 53% |
 | DBL regression | 97.0% (held-in corpus, not a clean holdout) |
+| Group 5-fold by recording | 76.6% acc / 41.9% balanced (majority 74.5%) |
+| Leave-one-corpus-out mean | **40.4% acc / 26.0% balanced** (majority 74.5%) |
 | Audio inference latency | ~200ms |
 | Full pipeline latency | ~600ms |
 
@@ -166,6 +171,13 @@ CV splits are segment-level; segments from the same recording may land in
 different folds, so these numbers are an upper bound. See
 [`reports/augmentation_cv.md`](reports/augmentation_cv.md) for the full
 augmentation comparison and caveats.
+
+**Important: the current model does not generalize across corpora.** In
+leave-one-corpus-out evaluation it is worse than the majority baseline on all
+three held-out corpora. In-corpus CV and the 97% DBL number are not evidence
+of cross-home accuracy. The model should be treated as a within-corpus
+prototype until domain adaptation and family pilot data exist. See
+[`reports/loco_cv.md`](reports/loco_cv.md).
 
 ## Hardware (Jetson deployment)
 

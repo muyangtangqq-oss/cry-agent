@@ -61,3 +61,6 @@ DBL regression check (same corpus, held-in):
 - Startle and temperature still come from only ~12 segments. Augmentation
   cannot invent acoustic diversity that is not in the source recordings.
 - A clean leave-one-corpus-out and a real-home pilot are still required.
+- Follow-up LOCO result: **40.4% accuracy / 26.0% balanced**, below the
+  74.5% majority baseline. Augmentation improved within-corpus minority
+  recall but did not fix cross-corpus domain shift. See `loco_cv.md`.
