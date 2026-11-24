@@ -150,9 +150,17 @@ class Scenario:
         if not self.audio_enabled:
             raise RuntimeError(f"Scenario '{self.name}' has audio disabled")
         from audio_inference import CryAudioClassifier
+        model_path = self.audio_cfg.get("model_path")
+        encoder_path = self.audio_cfg.get("label_encoder_path")
+        model_dir = os.environ.get("CRY_AGENT_MODEL_DIR")
+        if model_dir:
+            model_path = os.path.join(model_dir, "cry_classifier.joblib")
+            encoder_path = os.path.join(model_dir, "label_encoder.joblib")
+        model_path = os.environ.get("CRY_AGENT_MODEL_PATH", model_path)
+        encoder_path = os.environ.get("CRY_AGENT_LABEL_ENCODER_PATH", encoder_path)
         return CryAudioClassifier(
-            model_path=self.audio_cfg.get("model_path"),
-            label_encoder_path=self.audio_cfg.get("label_encoder_path"),
+            model_path=model_path,
+            label_encoder_path=encoder_path,
             segment_duration=self.audio_cfg.get("segment_duration"),
             sample_rate=self.audio_cfg.get("sample_rate"),
         )

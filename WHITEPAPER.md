@@ -67,11 +67,33 @@ Sensors → Signal Extraction → Multimodal Fusion → Layered Judge → Output
 | Algorithm | SVM (RBF kernel) + SVMSMOTE + StandardScaler |
 | Features | MFCC(20) + delta + delta² + spectral(centroid/bandwidth/rolloff/flatness) + ZCR + RMS + pitch(F0) + temporal |
 | Feature count | 95 |
-| Cross-validation accuracy | 79.6% (5-fold) |
-| Balanced accuracy | 44.7% |
-| Cross-dataset accuracy | 96.1% (train on Donate-a-Cry+DBL, test on DBL) |
-| Per-class accuracy | 82-100% (on DynamicSuperb) |
+| Cross-validation accuracy | 79.4% (5-fold, augmented model) |
+| Balanced accuracy | 52.3% (46.0% before augmentation) |
+| DBL regression | 97.0% (held-in corpus, not a clean holdout) |
+| Minority recall | startle 58%, temperature 67%, pain 53% |
 | Inference latency | ~200ms per 2s segment |
+
+CV splits are segment-level; 2 s segments from the same recording can land in
+different folds. These numbers are an upper bound, not real-home
+generalization. See `reports/augmentation_cv.md`.
+
+#### Minority-class augmentation
+
+Time-domain augmentation (pitch ±3 st, stretch 0.9–1.1, gain −6…+3 dB,
+noise SNR 15–35 dB) is generated only from training-fold sources, then the
+same SVM/SVMSMOTE pipeline is refit.
+
+| Metric | Baseline | Augmented |
+|--------|----------|-----------|
+| Accuracy | 79.5% | 79.4% |
+| Balanced accuracy | 46.0% | **52.3%** |
+| startle recall | 33.3% | **58.3%** |
+| temperature recall | 50.0% | **66.7%** |
+| pain recall | 46.5% | **52.8%** |
+
+Overall accuracy is flat because hungry is 73% of the corpus; the gain is in
+minority recall. The augmented model is now the production model; the previous
+weights are kept as `*.pre_aug.bak`.
 
 ### Multimodal Fusion
 
@@ -107,12 +129,27 @@ Sensors → Signal Extraction → Multimodal Fusion → Layered Judge → Output
 
 **Key result:** Signal weights shifted from cry_pattern (0.38→0.27) toward context (0.16→0.23), showing the system learned that context became more reliable over time.
 
+### Real-World Pilot Kit
+
+The household validation harness is built but not yet deployed:
+
+- 3–5 family protocol with consent, safety boundaries and a 2-week schedule
+- pseudonymous family IDs, opt-in audio retention, withdrawal deletes audio
+- parent feedback per event (`correct` or actual cause)
+- weekly report: coverage, accuracy, high-confidence errors, latency p50/p95
+- HMAC-pseudonymized CSV export for offline analysis
+- `export-training` turns consented, feedback-labeled audio into class folders
+  consumable by `train_augmented.py --extra-data`
+- 5-family simulated end-to-end test (`test_pilot.py`)
+
+This is deliberately local-first. No family data has been collected yet.
+
 ### End-to-End Pipeline
 
 | Metric | Value |
 |--------|-------|
-| Pipeline accuracy | 5/6 scenarios (83%) |
-| Average latency | 166ms per segment (audio + fusion + judge) |
+| Pipeline accuracy | 6/6 scenarios (100%) |
+| Average latency | 155–670ms per segment (warm, scenario-dependent) |
 | Models used | fusion (direct), tachyone (fallback), jev (complex) |
 | Critical overrides | 1/6 (vision corrected audio) |
 
@@ -166,19 +203,28 @@ Sensors → Signal Extraction → Multimodal Fusion → Layered Judge → Output
 
 ### Current Limitations
 
-- **Training data imbalance:** hungry class dominates (73% of segments). SVMSMOTE helps but minority classes (startle: 12, temperature: 12) remain weak.
+- **Training data imbalance:** hungry is still 73% of segments. Augmentation
+  raised balanced accuracy from 46.0% to 52.3%, but startle/temperature have
+  only 12 source segments each; augmentation cannot invent missing diversity.
 - **Jev region block:** TypeSafe API returns 451 in some regions. Mock Jev used for validation. Clef (open-source Apache 2.0) as production replacement.
 - **Vision prototype:** MediaPipe BlazePose not yet tested on real baby footage. Posture-to-cause mapping is rule-based, not learned.
-- **No real-world deployment data:** All validation is on public datasets. Real home environment noise, microphone placement, and baby variability not yet tested.
+- **No real-world deployment data:** All validation is on public datasets. The
+  pilot kit is ready, but no family has been enrolled yet. Real home noise,
+  microphone placement, and baby variability remain untested.
+- **Segment-level CV:** clips from the same recording can cross folds, so CV is
+  an upper bound. A leave-one-corpus-out and household holdout are still needed.
 
 ### Roadmap
 
-1. **Data augmentation:** Pitch shift + time stretch + noise injection for minority classes
-2. **Real-world validation:** Deploy to 3-5 volunteer families, collect feedback data
-3. **Clef deployment:** Replace mock Jev with open-source Clef for fully offline operation
-4. **Model export:** SVM → ONNX/TFLite for optimized edge inference
-5. **Multi-baby tracking:** ByteTrack + ReID for multi-child scenarios (classroom/childcare)
-6. **Long-term pattern discovery:** Weekly/monthly anomaly detection (e.g., "colic pattern every evening")
+1. ✅ **Data augmentation:** pitch shift + time stretch + gain + noise for
+   minority classes; balanced accuracy +6.3 pp.
+2. 🟡 **Real-world validation:** pilot kit implemented and tested with 5
+   simulated families; waiting for 3–5 real families.
+3. ⏳ **Clef deployment:** replace mock Jev with open-source Clef for fully
+   offline operation.
+4. ⏳ **Model export:** SVM → ONNX/TFLite for optimized edge inference.
+5. ⏳ **Multi-baby tracking:** ByteTrack + ReID for multi-child scenarios.
+6. ⏳ **Long-term pattern discovery:** weekly/monthly anomaly detection.
 
 ## 8. Reproduce
 
@@ -193,10 +239,14 @@ uv sync
 
 # Train (downloads datasets automatically)
 python train_combined_v2.py
+python train_augmented.py   # minority augmentation + CV comparison
 
 # Test
 python tachyone_server.py 8901 &
 python test_full_pipeline.py
+python test_scenario_engine.py
+python test_augment.py
+python test_pilot.py
 
 # Dashboard
 uvicorn api_server:app --host 0.0.0.0 --port 8000

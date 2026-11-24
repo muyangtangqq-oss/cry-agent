@@ -38,6 +38,11 @@ pip install librosa soundfile scikit-learn joblib imbalanced-learn httpx pyyaml
 # Train (downloads Donate-a-Cry + uses InfantCry-DBL + DynamicSuperb)
 python train_combined_v2.py
 
+# Optional: minority-class augmentation comparison (writes models_aug/)
+python train_augmented.py
+# After a pilot: include household clips exported by pilot.py
+python train_augmented.py --extra-data pilot_training_set
+
 # Test without hardware
 python tachyone_server.py 8901 &
 python test_full_pipeline.py    # 6 scenarios, real audio
@@ -66,6 +71,9 @@ python live_camera.py --replay-audio <wav> --postures rooting
 | `scenario_engine.py` | Loads a YAML scenario and builds the pipeline |
 | `rules.py` | Numeric / time-window / boolean rule evaluator |
 | `configs/*.yaml` | Baby, elderly-care, and pet-behavior scenarios |
+| `augment.py` | Pitch / stretch / gain / noise augmentation |
+| `train_augmented.py` | Minority-class training + baseline comparison |
+| `pilot.py` | Local 3–5 family pilot store, feedback, report, export |
 | `vision_mediapipe.py` | MediaPipe BlazePose posture detector |
 | `vision_detector.py` | Annotation-based fallback (no camera) |
 | `pipeline.py` | End-to-end: fusion → layered judge |
@@ -118,18 +126,46 @@ CRY_AGENT_SCENARIO=elderly_care python live_camera.py --camera 0
 Adding a domain means adding a YAML file; training its audio classifier is the
 only domain-specific model work.
 
+## Real-World Pilot
+
+The pilot kit is local-first and ready to deploy to 3–5 volunteer families:
+
+```bash
+python pilot.py init --consent --age-days 42 --audio-retention
+python pilot.py run --family fam_xxxxxxxx --audio clip.wav \
+  --postures rooting --temp 22 --feed-gap 3.0
+python pilot.py feedback --event 12 --cause hungry
+python pilot.py report
+python pilot.py export --out pilot_export_week1
+python pilot.py export-training --out pilot_training_set
+```
+
+Audio retention is opt-in, family IDs are pseudonymous, exports are
+HMAC-pseudonymized, and `withdraw` deletes that family's audio. The full
+consent, safety, feedback and analysis protocol is in
+[`PILOT_PROTOCOL.md`](PILOT_PROTOCOL.md).
+
+No families have been enrolled yet; `test_pilot.py` exercises the full loop
+with 5 simulated families.
+
 ## Model Performance
 
 | Metric | Value |
 |--------|-------|
 | Training data | Donate-a-Cry + InfantCry-DBL + DynamicSuperb |
+| Training segments | 5,053 (2 s, 16 kHz) |
 | Classes | 8 (hungry/sleepy/discomfort/pain/burp/lonely/startle/temperature) |
-| CV Accuracy | 79.6% |
-| CV Balanced Accuracy | 44.7% |
-| Cross-dataset accuracy | 96.1% (on InfantCry-DBL) |
-| Per-class accuracy | 82-100% (on DynamicSuperb) |
+| CV Accuracy | 79.4% |
+| CV Balanced Accuracy | 52.3% (46.0% before augmentation) |
+| Minority recall | startle 58%, temperature 67%, pain 53% |
+| DBL regression | 97.0% (held-in corpus, not a clean holdout) |
 | Audio inference latency | ~200ms |
 | Full pipeline latency | ~600ms |
+
+CV splits are segment-level; segments from the same recording may land in
+different folds, so these numbers are an upper bound. See
+[`reports/augmentation_cv.md`](reports/augmentation_cv.md) for the full
+augmentation comparison and caveats.
 
 ## Hardware (Jetson deployment)
 
@@ -150,3 +186,4 @@ The system improves over time through:
 2. **Bandit weight adjustment** — parent feedback adjusts signal weights
 3. **Personal cry library** — MFCC embeddings for individual cry matching
 4. **Misjudgment correction** — errors fed to Jev as context for future judgments
+5. **Pilot feedback store** — real-family outcomes for later offline retraining
