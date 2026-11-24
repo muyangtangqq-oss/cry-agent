@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from pilot import PilotStore
 
 
-def fake_result(cause, confidence=0.85, model="fusion", latency=180.0):
+def fake_result(cause, confidence=0.85, model="fusion", latency=180.0,
+                ood=False):
     return SimpleNamespace(
         cause=cause,
         confidence=confidence,
@@ -20,7 +21,10 @@ def fake_result(cause, confidence=0.85, model="fusion", latency=180.0):
         vision_confidence=0.0,
         escalated=False,
         critical_override=False,
+        audio_ood=ood,
+        session_ood=ood,
         latency_ms=latency,
+        trusted=not ood,
         scenario="baby_cry",
         per_signal={"audio": {"value": cause}},
     )
@@ -69,6 +73,8 @@ def run():
         assert report["families"] == 5
         assert report["feedback_events"] == 16
         assert report["audio_retained"] == 2
+        assert report["ood_rate"] == 0
+        assert report["untrusted_rate"] == 0
         assert report["latency_ms"]["p50"] is not None
         assert report["accuracy_on_feedback"] < 1.0
         assert len(report["by_family"]) == 5
@@ -104,6 +110,18 @@ def run():
               f"{report['accuracy_on_feedback']:.0%}")
         print(f"export rows={len(rows)} audio=2 training_clips=2")
         print("withdrawal deleted audio and blocked new events")
+
+        shifted = []
+        for _ in range(8):
+            shifted.append(store.log_result(
+                families[2], fake_result("hungry", ood=True)
+            ))
+        assert store.session_ood(families[2])
+        store.mark_untrusted(shifted[-1])
+        assert store.get_event(shifted[-1])["trusted"] == 0
+        shift_report = store.report()
+        assert families[2] in shift_report["domain_shift_families"]
+        print("domain shift detected after 8 OOD events")
 
 
 if __name__ == "__main__":

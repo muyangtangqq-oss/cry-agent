@@ -93,6 +93,8 @@ def main():
     print(f"Vision:   {result.vision_cause} ({result.vision_confidence:.0%})")
     print(f"Latency:  {result.latency_ms:.0f} ms")
     print(f"Escalate: {result.escalated}  override: {result.critical_override}")
+    print(f"OOD:      {result.audio_ood} "
+          f"(score {result.audio_ood_score:.1f})  trusted: {result.trusted}")
 
 
 if __name__ == "__main__":

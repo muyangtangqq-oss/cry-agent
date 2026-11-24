@@ -21,9 +21,9 @@ Cry-Agent is an agentic system that fuses **four signal sources** into a structu
 ### Architecture
 
 ```
-Sensors → Signal Extraction → Multimodal Fusion → Layered Judge → Output
-                                                              ↓
-                                                    Self-Learning Feedback
+Sensors → Signal Extraction → OOD Gate → Multimodal Fusion → Layered Judge → Output
+                                                                        ↓
+                                                              Self-Learning Feedback
 ```
 
 **Four signal layers:**
@@ -34,6 +34,11 @@ Sensors → Signal Extraction → Multimodal Fusion → Layered Judge → Output
 | Vision | Camera | Posture detection (MediaPipe BlazePose, 13 postures) | 30% |
 | Context | Time tracking | Feed/sleep/diaper intervals + age + time-of-day | 20% |
 | Environment | Sensors | Room temperature + ambient noise | 10% |
+
+**Audio OOD gate:** per-class Mahalanobis distance in standardized feature
+space, calibrated on unseen recordings. If audio is OOD it is removed from
+fusion and the text judge is not allowed to guess. A session-level gate marks
+the whole session untrusted when 8 of the last 12 clips are OOD.
 
 **Layered judge (escalation chain):**
 
@@ -54,7 +59,10 @@ Sensors → Signal Extraction → Multimodal Fusion → Layered Judge → Output
 
 **Disagreement escalation:** When top-2 causes are within 15% of each other, the system flags `escalate` instead of guessing. This routes to Tachyone → Jev for deeper reasoning.
 
-**Honest uncertainty:** Confidence < 0.40 → system outputs "unknown" rather than guessing. This prevents false confidence and builds parent trust.
+**Honest uncertainty:** Confidence < 0.40 or audio OOD → system outputs
+"unknown" rather than guessing. A session-level gate catches corpus shift
+even when individual clips slip through. This prevents false confidence and
+builds parent trust.
 
 ## 3. Validation
 
@@ -121,6 +129,33 @@ Consequences:
   general cry-cause model.
 - The family pilot is now a necessity, not a nice-to-have.
 - See `reports/loco_cv.md` and `test_loco.py`.
+
+### OOD Gate
+
+Per-class Mahalanobis distance with recording-level calibration (85th
+percentile, about 15% false alarms):
+
+| Held-out corpus | AUC | Gate rate | Trusted n | Trusted accuracy |
+|---|---:|---:|---:|---:|
+| Donate | 1.000 | 100% | 0 | n/a |
+| InfantCry-DBL | 0.920 | 84% | 77 | 19% |
+| DynamicSuperb | 0.912 | 86% | 280 | 16% |
+| **mean** | **0.944** | **90%** | **357** | |
+
+The gate catches about 90% of held-out corpus segments, but the remaining
+14–16% are still only 16–19% accurate. Therefore:
+
+- Gated audio is set to `unknown` and removed from fusion.
+- If vision/context/env carry strong evidence, the result is labelled
+  `fusion-nonaudio` and `trusted=false`.
+- If nothing else carries evidence, the output is `unknown` via `ood-gate`
+  and the text judge is never called.
+- A session gate marks the whole session untrusted when 8 of the last 12
+  clips are OOD. This is important because a new home is shifted at the
+  session level, not just per clip.
+
+This is containment, not a cure. A gate cannot recover acoustic information
+that the model never learned.
 
 ### Multimodal Fusion
 
@@ -243,7 +278,8 @@ This is deliberately local-first. No family data has been collected yet.
   pilot data.
 - **Severe cross-corpus domain shift:** LOCO mean is 40.4% accuracy / 26.0%
   balanced, below the 74.5% majority baseline. The current model is not
-  transferable across collection setups.
+  transferable across collection setups. The OOD gate catches ~90% at a 15%
+  false-alarm rate, but the trusted remainder is still 16–19% accurate.
 
 ### Roadmap
 
@@ -259,6 +295,8 @@ This is deliberately local-first. No family data has been collected yet.
 7. ⏳ **Domain adaptation:** fix the LOCO collapse with label-semantics audit,
    channel/room augmentation, domain-invariant features, and per-family
    calibration.
+8. ✅ **OOD containment:** per-class Mahalanobis gate + session-level shift
+   detection; prevents confident output from a clearly shifted corpus.
 
 ## 8. Reproduce
 
@@ -274,12 +312,14 @@ uv sync
 # Train (downloads datasets automatically)
 python train_combined_v2.py
 python train_augmented.py   # minority augmentation + CV comparison
+python train_ood.py         # fit gate + LOCO detection report
 
 # Test
 python tachyone_server.py 8901 &
 python test_full_pipeline.py
 python test_scenario_engine.py
 python test_loco.py
+python test_ood.py
 python test_augment.py
 python test_pilot.py
 

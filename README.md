@@ -43,9 +43,13 @@ python train_augmented.py
 # After a pilot: include household clips exported by pilot.py
 python train_augmented.py --extra-data pilot_training_set
 
+# Optional: fit the out-of-distribution gate
+python train_ood.py
+
 # Test without hardware
 python tachyone_server.py 8901 &
 python test_full_pipeline.py    # 6 scenarios, real audio
+python test_ood.py              # gate: normal vs noise vs session shift
 python live_replay.py <wav> --postures rooting  # streaming simulation
 ```
 
@@ -74,6 +78,8 @@ python live_camera.py --replay-audio <wav> --postures rooting
 | `augment.py` | Pitch / stretch / gain / noise augmentation |
 | `train_augmented.py` | Minority-class training + baseline comparison |
 | `test_loco.py` | Group CV + leave-one-corpus-out evaluation |
+| `ood.py` | Per-class Mahalanobis OOD detector |
+| `train_ood.py` | Fit + calibrate OOD gate; LOCO detection report |
 | `pilot.py` | Local 3–5 family pilot store, feedback, report, export |
 | `vision_mediapipe.py` | MediaPipe BlazePose posture detector |
 | `vision_detector.py` | Annotation-based fallback (no camera) |
@@ -178,6 +184,14 @@ three held-out corpora. In-corpus CV and the 97% DBL number are not evidence
 of cross-home accuracy. The model should be treated as a within-corpus
 prototype until domain adaptation and family pilot data exist. See
 [`reports/loco_cv.md`](reports/loco_cv.md).
+
+The OOD gate is the containment measure: per-class Mahalanobis distance with
+recording-level calibration. On LOCO it flags about 90% of held-out segments
+at a 15% false-alarm rate (AUC 0.944), but the 14–16% that pass are still only
+16–19% accurate. It also has a session gate: if 8 of the last 12 clips are
+OOD, the whole session is marked untrusted. Gated audio is removed from
+fusion; vision/context/env can still produce a result, otherwise the output is
+`unknown`. See [`reports/ood_gate.md`](reports/ood_gate.md).
 
 ## Hardware (Jetson deployment)
 

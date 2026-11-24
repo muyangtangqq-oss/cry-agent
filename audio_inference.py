@@ -20,7 +20,8 @@ SEGMENT_DURATION = 2.0
 
 class CryAudioClassifier:
     def __init__(self, model_path=None, label_encoder_path=None,
-                 segment_duration=None, sample_rate=None):
+                 segment_duration=None, sample_rate=None,
+                 ood_path=None, ood_enabled=True):
         self.model_path = os.path.expanduser(
             model_path or os.path.join(MODEL_DIR, "cry_classifier.joblib")
         )
@@ -44,6 +45,17 @@ class CryAudioClassifier:
         self.pipeline = joblib.load(self.model_path)
         self.label_encoder = joblib.load(self.label_encoder_path)
         self.classes = list(self.label_encoder.classes_)
+
+        self.ood = None
+        ood_path = os.path.expanduser(
+            ood_path or os.path.join(
+                os.path.dirname(self.model_path), "ood_detector.joblib"
+            )
+        )
+        if ood_enabled and os.path.exists(ood_path):
+            from ood import OODDetector
+            self.ood = joblib.load(ood_path)
+            self.ood_path = ood_path
 
     def _extract_features(self, y, sr=None):
         sr = sr or self.sample_rate
@@ -96,11 +108,13 @@ class CryAudioClassifier:
         """Classify audio array. Returns aggregated result over segments."""
         segments = self._segments(y, sr)
         probs_all = []
+        features_all = []
         for seg in segments:
             feat = self._extract_features(seg, sr)
             if feat is not None:
                 proba = self.pipeline.predict_proba([feat])[0]
                 probs_all.append(proba)
+                features_all.append(feat)
 
         if not probs_all:
             return {"cause": "unknown", "confidence": 0.0, "probabilities": {}}
@@ -116,12 +130,19 @@ class CryAudioClassifier:
             for i, p in enumerate(avg_probs)
         }
 
-        return {
+        result = {
             "cause": cause,
             "confidence": round(confidence, 3),
             "probabilities": probabilities,
             "n_segments": len(probs_all),
         }
+        if self.ood is not None and features_all:
+            ood_scores = [self.ood.score_one(f) for f in features_all]
+            worst = float(max(ood_scores))
+            result["ood_score"] = round(worst, 3)
+            result["ood_threshold"] = round(float(self.ood.threshold), 3)
+            result["ood"] = bool(worst > self.ood.threshold)
+        return result
 
     def classify_file(self, path):
         """Classify a .wav file."""

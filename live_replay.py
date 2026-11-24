@@ -51,8 +51,8 @@ def simulate_live_stream(wav_path, postures=None, face_state=None,
     print()
     print(f"{'Seg':>4s} {'Time':>6s} {'Audio':>12s} {'Conf':>6s} "
           f"{'Fused':>12s} {'Conf':>6s} {'Model':>10s} {'Final':>12s} "
-          f"{'Override':>9s} {'Lat':>5s}")
-    print("-" * 95)
+          f"{'Override':>9s} {'OOD':>4s} {'Lat':>5s}")
+    print("-" * 101)
 
     all_results = []
 
@@ -87,10 +87,12 @@ def simulate_live_stream(wav_path, postures=None, face_state=None,
         })
 
         override = "YES" if result.critical_override else ""
+        ood = "OOD" if (result.audio_ood or result.session_ood) else ""
         print(f"{seg_idx:4d} {seg_time:5.1f}s {result.audio_cause:>12s} "
               f"{result.audio_confidence:>5.0%} {result.fused_cause:>12s} "
               f"{result.fused_confidence:>5.0%} {result.model:>10s} "
-              f"{result.cause:>12s} {override:>9s} {result.latency_ms:>4.0f}ms")
+              f"{result.cause:>12s} {override:>9s} {ood:>4s} "
+              f"{result.latency_ms:>4.0f}ms")
 
         # Simulate real-time pacing (but faster for demo)
         time.sleep(0.1)
@@ -128,6 +130,9 @@ def simulate_live_stream(wav_path, postures=None, face_state=None,
     print(f"Models used:          {Counter(r['result'].model for r in all_results)}")
     print(f"Critical overrides:   {sum(1 for r in all_results if r['result'].critical_override)}")
     print(f"Escalated segments:   {sum(1 for r in all_results if r['result'].escalated)}")
+    print(f"OOD / untrusted:      "
+          f"{sum(1 for r in all_results if r['result'].audio_ood or r['result'].session_ood)}"
+          f" / {sum(1 for r in all_results if not r['result'].trusted)}")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ body { font-family: -apple-system, sans-serif; background: #0f1117; color: #e0e0
 .badge-tachyone { background: #3a1a5a; color: #c46af3; }
 .badge-jev { background: #5a3a1a; color: #f3c46a; }
 .badge-override { background: #5a1a1a; color: #f36a6a; }
+.badge-ood { background: #5a4a1a; color: #f3d46a; }
 .col-2 { grid-template-columns: 1fr 1fr; }
 .col-3 { grid-template-columns: 1fr 1fr 1fr; }
 .upload-area { border: 2px dashed #3a3d48; border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; }
@@ -132,12 +133,16 @@ function showResult(data) {
   badges.push(`<span class="badge badge-${data.model}">${data.model}</span>`);
   if (data.critical_override) badges.push(`<span class="badge badge-override">OVERRIDE</span>`);
   if (data.escalated) badges.push(`<span class="badge badge-override">ESCALATED</span>`);
+  if (data.audio_ood) badges.push(`<span class="badge badge-ood">OOD</span>`);
+  if (data.session_ood) badges.push(`<span class="badge badge-ood">SESSION OOD</span>`);
+  if (data.trusted === false) badges.push(`<span class="badge badge-override">UNTRUSTED</span>`);
   document.getElementById('badges').innerHTML = badges.join(' ');
 
   let html = '';
   html += `<div class="status-row"><span class="status-label">Audio</span><span class="status-value">${data.audio_cause} (${(data.audio_confidence*100).toFixed(0)}%)</span></div>`;
   html += `<div class="status-row"><span class="status-label">Fused</span><span class="status-value">${data.fused_cause} (${(data.fused_confidence*100).toFixed(0)}%)</span></div>`;
   html += `<div class="status-row"><span class="status-label">Model</span><span class="status-value">${data.model}</span></div>`;
+  html += `<div class="status-row"><span class="status-label">OOD score</span><span class="status-value">${(data.audio_ood_score ?? 0).toFixed(1)}</span></div>`;
   html += `<div class="status-row"><span class="status-label">Latency</span><span class="status-value">${data.latency_ms.toFixed(0)}ms</span></div>`;
   html += `<div class="status-row"><span class="status-label">Scores</span><span class="status-value">${JSON.stringify(data.all_scores)}</span></div>`;
   document.getElementById('signalBreakdown').innerHTML = html;

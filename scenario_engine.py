@@ -158,11 +158,19 @@ class Scenario:
             encoder_path = os.path.join(model_dir, "label_encoder.joblib")
         model_path = os.environ.get("CRY_AGENT_MODEL_PATH", model_path)
         encoder_path = os.environ.get("CRY_AGENT_LABEL_ENCODER_PATH", encoder_path)
+        ood_path = self.audio_cfg.get("ood_detector_path")
+        if not ood_path and model_path:
+            ood_path = os.path.join(
+                os.path.dirname(os.path.expanduser(model_path)),
+                "ood_detector.joblib",
+            )
+        ood_path = os.environ.get("CRY_AGENT_OOD_PATH", ood_path)
         return CryAudioClassifier(
             model_path=model_path,
             label_encoder_path=encoder_path,
             segment_duration=self.audio_cfg.get("segment_duration"),
             sample_rate=self.audio_cfg.get("sample_rate"),
+            ood_path=ood_path,
         )
 
     def build_vision_extractor(self):

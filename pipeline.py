@@ -10,6 +10,7 @@ Fusion output feeds into the judge:
   - escalate flag → always goes to Tachyone/Jev
 """
 import time
+from collections import deque
 from dataclasses import dataclass
 
 from config import Config
@@ -37,6 +38,10 @@ class PipelineResult:
     per_signal: dict
     all_scores: dict
     scenario: str = "baby_cry"
+    audio_ood: bool = False
+    session_ood: bool = False
+    audio_ood_score: float = 0.0
+    trusted: bool = True
 
 
 class CryAgentPipeline:
@@ -59,11 +64,17 @@ class CryAgentPipeline:
         self.tachyone_low = self.scenario.threshold("tachyone_low", 0.40)
         self.tachyone = TachyoneClient(cfg)
         self.jev = JevClient(cfg)
+        self._ood_window = deque(maxlen=12)
+        self.session_min_samples = 8
+        self.session_ood_threshold = 0.40
 
     def _audio(self):
         if self.audio_clf is None:
             self.audio_clf = self.scenario.build_audio_classifier()
         return self.audio_clf
+
+    def reset_session(self):
+        self._ood_window.clear()
 
     def run(
         self,
@@ -102,6 +113,11 @@ class CryAgentPipeline:
         signals = []
 
         # Audio signal
+        audio_raw_cause = "unknown"
+        audio_raw_conf = 0.0
+        audio_ood = False
+        session_ood = False
+        audio_ood_score = 0.0
         if audio_clf is not None:
             if audio_path:
                 audio_result = audio_clf.classify_file(audio_path)
@@ -110,13 +126,32 @@ class CryAgentPipeline:
                     audio_array,
                     sr or int(self.scenario.audio_cfg.get("sample_rate", 16000)),
                 )
-            audio_sig = Signal(
-                name="cry_classification",
-                value=audio_result["cause"],
-                confidence=audio_result["confidence"],
-                source="audio",
-                raw={"probabilities": audio_result.get("probabilities", {})},
-            )
+            audio_raw_cause = audio_result["cause"]
+            audio_raw_conf = audio_result["confidence"]
+            audio_ood = bool(audio_result.get("ood", False))
+            audio_ood_score = float(audio_result.get("ood_score", 0.0))
+            self._ood_window.append(audio_ood)
+            if len(self._ood_window) >= self.session_min_samples:
+                ood_rate = sum(self._ood_window) / len(self._ood_window)
+                session_ood = ood_rate >= self.session_ood_threshold
+            audio_raw = {
+                "probabilities": audio_result.get("probabilities", {}),
+                "ood": audio_ood,
+                "ood_score": audio_ood_score,
+                "ood_threshold": audio_result.get("ood_threshold"),
+                "raw_cause": audio_raw_cause,
+            }
+            if audio_ood or session_ood:
+                # Do not let an out-of-distribution classifier steer fusion.
+                audio_sig = Signal(
+                    name="cry_classification", value="unknown",
+                    confidence=0.0, source="audio", raw=audio_raw,
+                )
+            else:
+                audio_sig = Signal(
+                    name="cry_classification", value=audio_raw_cause,
+                    confidence=audio_raw_conf, source="audio", raw=audio_raw,
+                )
         else:
             audio_sig = Signal(
                 name="cry_classification", value="unknown",
@@ -155,7 +190,25 @@ class CryAgentPipeline:
         # High confidence → direct output
         # Escalate flag or medium confidence → Tachyone
         # Low confidence → Jev
-        if fused_conf >= self.direct_threshold and not escalate:
+        if audio_ood or session_ood:
+            escalate = False
+            non_audio_strong = [
+                sig for sig in (vision_sig, context_sig, env_sig)
+                if sig.value not in ("unknown", "neutral", "normal")
+                and sig.confidence >= 0.55
+            ]
+            if (non_audio_strong and fused_cause != "unknown"
+                    and fused_conf >= 0.30):
+                # Audio is unfamiliar, but vision/context/env still carry
+                # evidence. Never invoke a text judge on a bad audio signal.
+                final_cause = fused_cause
+                final_conf = fused_conf
+                model = "fusion-nonaudio"
+            else:
+                final_cause = "unknown"
+                final_conf = 0.1
+                model = "ood-gate"
+        elif fused_conf >= self.direct_threshold and not escalate:
             final_cause = fused_cause
             final_conf = fused_conf
             model = "fusion"
@@ -164,7 +217,10 @@ class CryAgentPipeline:
             causes = self.scenario.classes or self.cfg.cry_causes
             question = (
                 f"Fused analysis: {fused_cause} ({fused_conf:.0%}). "
-                f"Audio: {audio_sig.value} ({audio_sig.confidence:.0%}). "
+                f"Audio: {audio_sig.value} ({audio_sig.confidence:.0%})"
+                + (f" [OOD score={audio_ood_score:.1f}]"
+                   if (audio_ood or session_ood) else "")
+                + ". "
                 f"Vision: {vision_sig.value} ({vision_sig.confidence:.0%}). "
                 f"Context: {context_sig.value} ({context_sig.confidence:.0%}). "
                 f"Env: {env_sig.value} ({env_sig.confidence:.0%}). "
@@ -213,8 +269,8 @@ class CryAgentPipeline:
             model=model,
             fused_cause=fused_cause,
             fused_confidence=fused_conf,
-            audio_cause=audio_sig.value,
-            audio_confidence=audio_sig.confidence,
+            audio_cause=audio_raw_cause,
+            audio_confidence=audio_raw_conf,
             vision_cause=vision_sig.value,
             vision_confidence=vision_sig.confidence,
             escalated=escalate,
@@ -223,4 +279,8 @@ class CryAgentPipeline:
             per_signal=fused["per_signal"],
             all_scores=fused["all_scores"],
             scenario=self.scenario.name,
+            audio_ood=audio_ood,
+            session_ood=session_ood,
+            audio_ood_score=round(audio_ood_score, 3),
+            trusted=not (audio_ood or session_ood),
         )

@@ -88,6 +88,8 @@ class PilotStore:
                 vision_confidence REAL,
                 escalated INTEGER NOT NULL DEFAULT 0,
                 critical_override INTEGER NOT NULL DEFAULT 0,
+                ood INTEGER NOT NULL DEFAULT 0,
+                trusted INTEGER NOT NULL DEFAULT 1,
                 latency_ms REAL,
                 audio_path TEXT,
                 signals_json TEXT,
@@ -100,6 +102,17 @@ class PilotStore:
             CREATE INDEX IF NOT EXISTS idx_events_family
                 ON events(family_id, ts);
             """)
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(events)")
+            }
+            if "ood" not in columns:
+                conn.execute(
+                    "ALTER TABLE events ADD COLUMN ood INTEGER NOT NULL DEFAULT 0"
+                )
+            if "trusted" not in columns:
+                conn.execute(
+                    "ALTER TABLE events ADD COLUMN trusted INTEGER NOT NULL DEFAULT 1"
+                )
 
     # ---- families -----------------------------------------------------------
     def add_family(self, age_days, consent_version=CONSENT_VERSION,
@@ -165,6 +178,8 @@ class PilotStore:
             "vision_confidence": _attr(result, "vision_confidence"),
             "escalated": int(bool(_attr(result, "escalated", False))),
             "critical_override": int(bool(_attr(result, "critical_override", False))),
+            "ood": int(bool(_attr(result, "audio_ood", False))),
+            "trusted": int(bool(_attr(result, "trusted", True))),
             "latency_ms": _attr(result, "latency_ms"),
             "scenario": _attr(result, "scenario", "baby_cry"),
             "signals_json": json.dumps(
@@ -178,15 +193,16 @@ class PilotStore:
                     family_id, ts, scenario, cause, confidence, model,
                     fused_cause, fused_confidence, audio_cause, audio_confidence,
                     vision_cause, vision_confidence, escalated,
-                    critical_override, latency_ms, signals_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    critical_override, ood, trusted, latency_ms, signals_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 family_id, time.time(), payload["scenario"], payload["cause"],
                 payload["confidence"], payload["model"], payload["fused_cause"],
                 payload["fused_confidence"], payload["audio_cause"],
                 payload["audio_confidence"], payload["vision_cause"],
                 payload["vision_confidence"], payload["escalated"],
-                payload["critical_override"], payload["latency_ms"],
+                payload["critical_override"], payload["ood"],
+                payload["trusted"], payload["latency_ms"],
                 payload["signals_json"],
             ))
             event_id = cur.lastrowid
@@ -228,6 +244,24 @@ class PilotStore:
                 "SELECT * FROM events WHERE id = ?", (event_id,)
             ).fetchone()
         return dict(row) if row else None
+
+    def session_ood(self, family_id, window=12, min_samples=8,
+                    threshold=0.40):
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT ood FROM events WHERE family_id = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (family_id, window),
+            ).fetchall()
+        if len(rows) < min_samples:
+            return False
+        return (sum(r["ood"] for r in rows) / len(rows)) >= threshold
+
+    def mark_untrusted(self, event_id):
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE events SET trusted = 0 WHERE id = ?", (event_id,)
+            )
 
     # ---- reporting ----------------------------------------------------------
     def report(self, family_id=None):
@@ -271,6 +305,12 @@ class PilotStore:
                 sum(1 for r in rows if r["critical_override"])
                 / max(len(rows), 1), 3
             ),
+            "ood_rate": round(
+                sum(1 for r in rows if r["ood"]) / max(len(rows), 1), 3
+            ),
+            "untrusted_rate": round(
+                sum(1 for r in rows if not r["trusted"]) / max(len(rows), 1), 3
+            ),
             "latency_ms": {
                 "p50": round(statistics.median(latencies), 1) if latencies else None,
                 "p95": round(latencies[int(len(latencies) * 0.95) - 1], 1)
@@ -285,6 +325,7 @@ class PilotStore:
                 }
                 for cause, stats in sorted(per_cause.items())
             },
+            "domain_shift_families": [],
         }
 
         if not family_id:
@@ -303,7 +344,14 @@ class PilotStore:
                         sum(1 for r in fam_feedback if r["feedback_correct"])
                         / max(len(fam_feedback), 1), 3
                     ) if fam_feedback else None,
+                    "ood_rate": round(
+                        sum(1 for r in fam_rows if r["ood"])
+                        / max(len(fam_rows), 1), 3
+                    ),
+                    "session_ood": self.session_ood(fam["family_id"]),
                 }
+                if by_family[fam["family_id"]]["session_ood"]:
+                    summary["domain_shift_families"].append(fam["family_id"])
             summary["by_family"] = by_family
         return summary
 
@@ -344,6 +392,7 @@ class PilotStore:
             "vision_confidence", "escalated", "critical_override",
             "latency_ms", "feedback_cause", "feedback_correct",
             "audio_retained", "age_days", "consent_version",
+            "ood", "trusted",
         ]
         if include_notes:
             fields.append("feedback_notes")
@@ -388,6 +437,8 @@ class PilotStore:
                     "audio_retained": retained,
                     "age_days": row["age_days"],
                     "consent_version": row["consent_version"],
+                    "ood": row["ood"],
+                    "trusted": row["trusted"],
                 }
                 if include_notes:
                     record["feedback_notes"] = row["feedback_notes"]
@@ -477,6 +528,8 @@ def _print_report(report):
         print(f"Accuracy:           {report['accuracy_on_feedback']:.1%}")
     print(f"Escalation rate:    {report['escalation_rate']:.0%}")
     print(f"Override rate:      {report['override_rate']:.0%}")
+    print(f"OOD / untrusted:    {report['ood_rate']:.0%} / "
+          f"{report['untrusted_rate']:.0%}")
     print(f"Latency p50/p95:    {report['latency_ms']['p50']} / "
           f"{report['latency_ms']['p95']} ms")
     print(f"Audio retained:     {report['audio_retained']}")
@@ -491,7 +544,8 @@ def _print_report(report):
             acc = "n/a" if stats["accuracy"] is None else f"{stats['accuracy']:.0%}"
             print(f"  {family_id:16s} age={stats['age_days']:>4d}d "
                   f"events={stats['events']:>3d} feedback={stats['feedback']:>3d} "
-                  f"acc={acc}")
+                  f"acc={acc} ood={stats['ood_rate']:.0%}"
+                  + (" DOMAIN-SHIFT" if stats["session_ood"] else ""))
 
 
 def main():
@@ -636,6 +690,11 @@ def main():
         print(f"event_id={event_id}")
         print(f"cause={result.cause} confidence={result.confidence:.0%} "
               f"model={result.model} latency={result.latency_ms:.0f}ms")
+        print(f"ood={result.audio_ood} trusted={result.trusted}")
+        if store.session_ood(args.family):
+            store.mark_untrusted(event_id)
+            print("WARNING: session-level OOD shift detected; "
+                  "this event is marked untrusted.")
         if args.audio and not family["audio_retention"]:
             print("audio not retained (family did not opt in)")
         if args.audio and family["audio_retention"]:

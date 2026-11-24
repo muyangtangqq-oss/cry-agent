@@ -210,8 +210,9 @@ def run_live(camera_index=0, mic_device=None, replay_audio=None,
             print(f"  Fused:   {result.fused_cause:>12s} ({result.fused_confidence:.0%})")
             override = " [OVR]" if result.critical_override else ""
             escalate = " [ESC]" if result.escalated else ""
+            ood = " [OOD]" if (result.audio_ood or result.session_ood) else ""
             print(f"  FINAL:   {result.cause:>12s} ({result.confidence:.0%}) "
-                  f"via {result.model}{override}{escalate}")
+                  f"via {result.model}{override}{escalate}{ood}")
             print(f"  Latency: {result.latency_ms:.0f}ms")
             print()
 
