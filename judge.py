@@ -15,7 +15,7 @@ from typing import Optional
 
 from config import Config
 from tachyone_client import TachyoneClient
-from jev_client import JevClient
+from judge_factory import build_cloud_judge
 from baby_profile import BabyProfile
 
 
@@ -38,7 +38,8 @@ class LayeredJudge:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.tachyone = TachyoneClient(cfg)
-        self.jev = JevClient(cfg)
+        self.jev = build_cloud_judge(cfg)
+        self.cloud_tier = getattr(self.jev, "tier_name", "jev")
 
     def judge(self, signals: dict, profile: BabyProfile) -> Judgment:
         causes = self.cfg.cry_causes
@@ -96,7 +97,9 @@ class LayeredJudge:
         # calibrated than the heuristic engines, so a confident Jev answer
         # wins even when Tachyone reports a larger raw number.
         if j_answer and jev_conf > 0:
-            final_cause, final_conf, model = j_answer, jev_conf, "jev"
+            final_cause, final_conf, model = (
+                j_answer, jev_conf, self.cloud_tier
+            )
             judge_model = j_result.get("model", "")
             alternatives = j_result.get("alternatives", [])
             # Jev confirming a more confident lower tier is agreement, not

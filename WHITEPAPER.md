@@ -286,6 +286,22 @@ This is deliberately local-first. No family data has been collected yet.
   The client retries once per route and falls back to a clearly-labelled mock
   (`jev-mock-v0.1`) for 45 s, so cloud availability is not guaranteed. Clef
   (Apache 2.0) remains the fully offline option.
+- **Jev is unreachable from mainland China.** `CRY_AGENT_JUDGE_PROVIDER` can
+  replace the cloud tier with DeepSeek, Qwen, GLM, Kimi, a local Ollama model,
+  or OpenAI. These are general instruct models with JSON mode, not calibrated
+  classifiers: their confidence is a self-report (`calibrated: false`) and must
+  not be compared numerically with Tachyone or Jev confidences.
+- **Dunstan `eairh` is mis-mapped.** The corpus defines it as lower-wind /
+  abdominal discomfort, and we map it to `pain`. Re-mapping it to `discomfort`
+  improves DBL balanced accuracy from 19.3% to 24.4%, but `eairh` is still
+  predicted as `hungry` in 232/241 segments. More importantly, DBL provides
+  five reflex *sounds*, not five verified causes; the labels are not a
+  diagnosis. See `reports/dunstan_audit.md`.
+- **Only Dunstan Tier 1 is clean.** The 337 studio clips carry
+  `source_confirmed=TRUE`. The other 1,214 clips are unconfirmed, 746 have
+  `source=unknown`, and one file has a folder/filename label conflict. Adding
+  them raises Tier-1 test accuracy from 20.3% to 70.5%, but they are
+  domain-shift data, not a clean holdout.
 - **Vision prototype:** MediaPipe BlazePose not yet tested on real baby footage. Posture-to-cause mapping is rule-based, not learned.
 - **No real-world deployment data:** All validation is on public datasets. The
   pilot kit is ready, but no family has been enrolled yet. Real home noise,

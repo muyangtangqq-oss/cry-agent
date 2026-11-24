@@ -29,6 +29,8 @@ DEFAULT_MODEL = "jev-latest"
 
 
 class JevClient:
+    tier_name = "jev"
+
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.api_key = cfg.typesafe_api_key

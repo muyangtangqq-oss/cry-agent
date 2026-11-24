@@ -17,7 +17,7 @@ from config import Config
 from multimodal_signals import Signal
 from scenario_engine import Scenario, load_scenario
 from tachyone_client import TachyoneClient
-from jev_client import JevClient
+from judge_factory import build_cloud_judge
 from baby_profile import BabyProfile
 
 
@@ -64,7 +64,8 @@ class CryAgentPipeline:
         self.tachyone_high = self.scenario.threshold("tachyone_high", 0.70)
         self.tachyone_low = self.scenario.threshold("tachyone_low", 0.40)
         self.tachyone = TachyoneClient(cfg)
-        self.jev = JevClient(cfg)
+        self.jev = build_cloud_judge(cfg)
+        self.cloud_tier = getattr(self.jev, "tier_name", "jev")
         self._ood_window = deque(maxlen=12)
         self.session_min_samples = 8
         self.session_ood_threshold = 0.40
@@ -258,7 +259,9 @@ class CryAgentPipeline:
                 # against each other, so taking a raw max() would let the
                 # heuristic Tachyone outvote a calibrated Jev.
                 if j_answer and j_conf > 0:
-                    final_cause, final_conf, model = j_answer, j_conf, "jev"
+                    final_cause, final_conf, model = (
+                        j_answer, j_conf, self.cloud_tier
+                    )
                     judge_model = j_result.get("model", "")
                     if j_answer == fused_cause and fused_conf > final_conf:
                         final_conf = fused_conf

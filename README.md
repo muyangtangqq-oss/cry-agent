@@ -54,6 +54,35 @@ The client retries once per route, then uses the clearly-labelled mock
 engine that actually answered is surfaced as `judge_model` in the API and
 dashboard, so a mock answer is never mistaken for a real one.
 
+#### Mainland-accessible judge (Jev alternative)
+
+Jev is not reachable from mainland China. `judge_factory.py` can swap the cloud
+tier for any OpenAI-compatible model without touching the pipeline:
+
+| Provider | `CRY_AGENT_JUDGE_PROVIDER` | Default model | Key |
+|---|---|---|---|
+| DeepSeek | `deepseek` | `deepseek-chat` | `CRY_AGENT_JUDGE_API_KEY` or Magpie `deepseek` |
+| Qwen (DashScope) | `qwen` | `qwen-plus` | Magpie `qwen` |
+| GLM (Zhipu) | `glm` | `glm-4-flash` | Magpie `zhipu` |
+| Kimi (Moonshot) | `kimi` | `moonshot-v1-8k` | Magpie `moonshot` |
+| Ollama (offline) | `ollama` | `qwen2.5:1.5b-instruct` | none |
+| OpenAI | `openai` | `gpt-4.1-mini` | Magpie `openai-api` |
+
+```bash
+CRY_AGENT_JUDGE_PROVIDER=deepseek python llm_judge.py   # smoke test
+CRY_AGENT_JUDGE_PROVIDER=deepseek python run.py         # use it in the pipeline
+CRY_AGENT_JUDGE_PROVIDER=ollama python run.py           # fully offline judge
+```
+
+`CRY_AGENT_JUDGE_BASE_URL` and `CRY_AGENT_JUDGE_MODEL` override the preset.
+The local Tachyone tier is unchanged and still answers most cases in ≤ 10 ms;
+only the ambiguous remainder goes to the cloud model.
+
+These are general instruct models with JSON mode, not calibrated classifiers.
+Their answers are marked `calibrated: false` and their confidence is a
+self-report, so it must not be compared numerically with Tachyone or Jev
+confidences.
+
 ## Quick Start
 
 ### On dev machine (no hardware needed)
@@ -227,6 +256,32 @@ at a 15% false-alarm rate (AUC 0.944), but the 14–16% that pass are still only
 OOD, the whole session is marked untrusted. Gated audio is removed from
 fusion; vision/context/env can still produce a result, otherwise the output is
 `unknown`. See [`reports/ood_gate.md`](reports/ood_gate.md).
+
+### Dunstan labels: what the five sounds mean
+
+InfantCry-DBL labels come from Dunstan's five reflex sounds. The audit in
+[`reports/dunstan_audit.md`](reports/dunstan_audit.md) checks our mapping
+against the corpus's own definitions:
+
+| DBL | Corpus definition | Mapping | Fit |
+|---|---|---|---|
+| `neh` | hunger, sucking reflex | hungry | direct |
+| `owh` | sleepiness, yawn | sleepy | direct |
+| `eh` | upper wind, needs burp | burp | direct |
+| `heh` | physical/skin discomfort | discomfort | direct |
+| `eairh` | **lower wind / abdominal discomfort** | pain | **too strong** |
+
+`eairh` is gas discomfort, not sharp pain. Re-mapping it to `discomfort`
+raises balanced accuracy on DBL from 19.3% to 24.4% (mapping B vs A), but the
+global model still predicts `eairh` as `hungry` 232/241 times, so the mapping
+is not the main bottleneck. The bigger caveat is semantic: these are five
+*reflex sounds*, not five verified causes. A perfect DBL classifier is still
+not a cause diagnosis.
+
+Only the 337 `source_confirmed=TRUE` studio clips were used before. The other
+1,214 clips are unconfirmed and 746 have `source=unknown`; adding them raises
+Tier-1 test accuracy from 20.3% to 70.5%, but they should be treated as
+domain-shift data, not clean ground truth.
 
 ## Family Calibration (few-shot)
 
