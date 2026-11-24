@@ -94,6 +94,11 @@ def run():
         assert sum(train_manifest["per_class"].values()) == 2
         assert os.path.exists(os.path.join(train_out, "manifest.json"))
 
+        labeled = store.labeled_audio(families[0])
+        assert len(labeled) == 1 and labeled[0][1] == "sleepy", labeled
+        retained = store.family_audio(families[0])
+        assert len(retained) == 1 and os.path.exists(retained[0])
+
         store.withdraw(families[0])
         assert store.get_family(families[0])["withdrawn"] == 1
         assert not os.path.isdir(os.path.join(tmp, "audio", families[0]))

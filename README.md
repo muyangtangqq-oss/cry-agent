@@ -109,6 +109,9 @@ python live_camera.py --replay-audio <wav> --postures rooting
 | `test_loco.py` | Group CV + leave-one-corpus-out evaluation |
 | `ood.py` | Per-class Mahalanobis OOD detector |
 | `train_ood.py` | Fit + calibrate OOD gate; LOCO detection report |
+| `adapt.py` | CORAL, prior correction, nearest-centroid, family calibrator |
+| `test_adaptation.py` | Few-shot LOCO experiment → `reports/adaptation.md` |
+| `make_source_stats.py` | Backfill CORAL source moments for an existing model |
 | `pilot.py` | Local 3–5 family pilot store, feedback, report, export |
 | `vision_mediapipe.py` | MediaPipe BlazePose posture detector |
 | `vision_detector.py` | Annotation-based fallback (no camera) |
@@ -175,6 +178,7 @@ python pilot.py init --consent --age-days 42 --audio-retention
 python pilot.py run --family fam_xxxxxxxx --audio clip.wav \
   --postures rooting --temp 22 --feed-gap 3.0
 python pilot.py feedback --event 12 --cause hungry
+python pilot.py calibrate --family fam_xxxxxxxx   # needs labelled audio
 python pilot.py report
 python pilot.py export --out pilot_export_week1
 python pilot.py export-training --out pilot_training_set
@@ -223,6 +227,39 @@ at a 15% false-alarm rate (AUC 0.944), but the 14–16% that pass are still only
 OOD, the whole session is marked untrusted. Gated audio is removed from
 fusion; vision/context/env can still produce a result, otherwise the output is
 `unknown`. See [`reports/ood_gate.md`](reports/ood_gate.md).
+
+## Family Calibration (few-shot)
+
+Per-family calibration is the bridge between the cross-corpus collapse and a
+usable pilot. With a small number of parent-confirmed clips, the local model
+picks one of four adapters on a recording-level validation slice: global,
+CORAL alignment, nearest-centroid prototypes, or CORAL + prototypes.
+
+Leave-one-corpus-out, 30% of recordings used for calibration, 5 seeds:
+
+| Held-out family | Global acc / bal | Calibrated acc / bal | Picked |
+|---|---:|---:|---|
+| Donate-a-Cry | 79.9% / 23.0% | 71.3% / 47.2% | CORAL |
+| InfantCry-DBL | 20.5% / 19.6% | 40.8% / 43.4% | prototype / CORAL+prototype |
+| DynamicSuperb | 21.2% / 36.3% | 60.7% / 41.7% | CORAL |
+| **Mean** | **40.5% / 26.3%** | **57.6% / 44.1%** | — |
+
+Donate trades 8.6 pp of raw accuracy for +24.2 pp balanced accuracy: the
+calibrated model stops predicting `hungry` for almost everything. CORAL uses
+unlabeled family audio (mean/covariance only), so raw audio never leaves the
+device. Prototypes use only the labelled clips.
+
+```bash
+python make_source_stats.py             # backfill CORAL stats for an old model
+python pilot.py calibrate --family fam_xxxxxxxx
+python pilot.py run --family fam_xxxxxxxx --audio clip.wav   # auto-loads it
+python test_adaptation.py --seeds 5     # regenerate reports/adaptation.md
+```
+
+For a non-pilot pipeline, point `CRY_AGENT_FAMILY_ADAPTER` at the `.joblib`.
+The calibration is a research prototype: labels are parent-reported, the
+validation slices are small, and a family-specific bias can be learned. See
+[`reports/adaptation.md`](reports/adaptation.md).
 
 ## Hardware (Jetson deployment)
 

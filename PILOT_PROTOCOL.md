@@ -80,6 +80,39 @@
   暂停该户的自动判断，只记录事件。
 - OOD 门控是止损，不是修复。它只能避免自信错误，不能把跨语料准确率变好。
 
+## 6.5 每户校准（few-shot）
+
+全局模型在跨语料测试里会塌到多数类基线附近；每户只要提供少量已确认的
+录音，就能把判断拉回可用范围。校准在本地完成，不上传原始音频。
+
+评估方式：留一语料当“新家庭”，用该语料 30% 的录音（按录音切分，不按
+片段）做校准，其余做测试，5 个随机种子取平均。
+
+| 语料（模拟家庭） | 全局 acc / bal | 每户自动选择 acc / bal | 选中的适配器 |
+|---|---:|---:|---|
+| Donate-a-Cry | 79.9% / 23.0% | 71.3% / 47.2% | CORAL |
+| InfantCry-DBL | 20.5% / 19.6% | 40.8% / 43.4% | 原型 / CORAL+原型 |
+| DynamicSuperb | 21.2% / 36.3% | 60.7% / 41.7% | CORAL |
+| **三语料均值** | **40.5% / 26.3%** | **57.6% / 44.1%** | — |
+
+注意 Donate 上准确率从 79.9% 降到 71.3%，但平衡准确率从 23.0% 升到
+47.2%：校准会把偏向 hungry 的预测拉回少数类，这是监控场景想要的取舍。
+CORAL 用到该户未标注音频的均值和协方差（transductive），原型法只用家长
+确认过的片段。
+
+```bash
+# 至少 10 条“有音频留存 + 家长确认原因”的事件后
+python pilot.py calibrate --family fam_xxxxxxxx
+# 默认写到 ~/.config/cry-agent/pilot/adapters/<family>.joblib
+
+# 之后的 run 会自动加载；也可显式指定或临时关闭
+python pilot.py run --family fam_xxxxxxxx --audio clip.wav
+python pilot.py run --family fam_xxxxxxxx --audio clip.wav --no-adapter
+```
+
+每户校准仍是研究原型：样本量小、标签来自家长主观判断，可能把个别家庭的
+偏差学进去。报告里要同时看 `validation_balanced_accuracy` 和后续真实反馈。
+
 ## 7. 指标与成功标准
 
 | 指标 | 目标 | 说明 |
@@ -131,6 +164,9 @@ python pilot.py export --out pilot_export_week1
 
 # 把“有反馈 + 同意留存音频”的事件导出成按原因分目录的训练集
 python pilot.py export-training --out pilot_training_set
+
+# 用该户已确认的录音做每户校准（需要音频留存）
+python pilot.py calibrate --family fam_xxxxxxxx
 
 # 退出并删除音频
 python pilot.py withdraw --family fam_xxxxxxxx

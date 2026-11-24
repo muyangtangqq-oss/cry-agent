@@ -174,10 +174,13 @@ def evaluate(y_true, pred):
 def promote_model(src_dir, dst_dir=DEFAULT_MODEL_DIR):
     import shutil
     os.makedirs(dst_dir, exist_ok=True)
+    optional = {"source_stats.npz"}
     for name in ("cry_classifier.joblib", "label_encoder.joblib",
-                 "model_config.json"):
+                 "model_config.json", "source_stats.npz"):
         src = os.path.join(src_dir, name)
         if not os.path.exists(src):
+            if name in optional:
+                continue
             raise FileNotFoundError(src)
         dst = os.path.join(dst_dir, name)
         if os.path.exists(dst):
@@ -275,6 +278,12 @@ def run(args):
     os.makedirs(args.output_dir, exist_ok=True)
     joblib.dump(final, os.path.join(args.output_dir, "cry_classifier.joblib"))
     joblib.dump(le, os.path.join(args.output_dir, "label_encoder.joblib"))
+    Xs_all = final.named_steps["scaler"].transform(np.asarray(X_all))
+    np.savez_compressed(
+        os.path.join(args.output_dir, "source_stats.npz"),
+        mean=Xs_all.mean(axis=0).astype(np.float32),
+        cov=np.cov(Xs_all, rowvar=False).astype(np.float32),
+    )
     report = {
         "training": "donate+dbl+dynamic + minority augmentation",
         "augmentation": {

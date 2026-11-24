@@ -21,7 +21,7 @@ SEGMENT_DURATION = 2.0
 class CryAudioClassifier:
     def __init__(self, model_path=None, label_encoder_path=None,
                  segment_duration=None, sample_rate=None,
-                 ood_path=None, ood_enabled=True):
+                 ood_path=None, ood_enabled=True, family_adapter=None):
         self.model_path = os.path.expanduser(
             model_path or os.path.join(MODEL_DIR, "cry_classifier.joblib")
         )
@@ -56,6 +56,25 @@ class CryAudioClassifier:
             from ood import OODDetector
             self.ood = joblib.load(ood_path)
             self.ood_path = ood_path
+
+        self.family_adapter = None
+        if family_adapter is not None:
+            self.set_family_adapter(family_adapter)
+
+    def set_family_adapter(self, adapter):
+        """Attach a per-family calibrator, rebinding it to this pipeline."""
+        if hasattr(adapter, "bind"):
+            adapter.bind(self.pipeline, self.pipeline.named_steps["scaler"])
+        if [str(c) for c in adapter.classes] != [str(c) for c in self.classes]:
+            raise ValueError(
+                "family adapter classes do not match the audio model: "
+                f"{list(adapter.classes)} vs {list(self.classes)}"
+            )
+        self.family_adapter = adapter
+        return adapter
+
+    def load_family_adapter(self, path):
+        return self.set_family_adapter(joblib.load(os.path.expanduser(path)))
 
     def _extract_features(self, y, sr=None):
         sr = sr or self.sample_rate
@@ -119,6 +138,12 @@ class CryAudioClassifier:
         if not probs_all:
             return {"cause": "unknown", "confidence": 0.0, "probabilities": {}}
 
+        if self.family_adapter is not None:
+            probs_all = [
+                self.family_adapter.predict_proba(np.array([feat]))[0]
+                for feat in features_all
+            ]
+
         # Average probabilities across segments
         avg_probs = np.mean(probs_all, axis=0)
         best_idx = np.argmax(avg_probs)
@@ -150,6 +175,16 @@ class CryAudioClassifier:
         result = self.classify_array(y, sr)
         result["file"] = os.path.basename(path)
         return result
+
+    def features_from_file(self, path):
+        """Per-segment feature vectors, used by family calibration."""
+        y, sr = librosa.load(path, sr=None)
+        feats = []
+        for seg in self._segments(y, sr):
+            feat = self._extract_features(seg, sr)
+            if feat is not None:
+                feats.append(feat)
+        return feats
 
     def get_cry_pattern(self, probabilities):
         """Convert probabilities to a text description for the judge."""

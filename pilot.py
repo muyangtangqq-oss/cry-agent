@@ -503,6 +503,38 @@ class PilotStore:
             json.dump(manifest, f, indent=2)
         return manifest
 
+    def labeled_audio(self, family_id):
+        """Audio-retained events with a parent-confirmed cause."""
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT audio_path, feedback_cause
+                FROM events
+                WHERE family_id = ?
+                  AND feedback_cause IS NOT NULL
+                  AND audio_path IS NOT NULL
+                ORDER BY id
+            """, (family_id,)).fetchall()
+        clips = []
+        for row in rows:
+            path = os.path.join(self.root, row["audio_path"])
+            if os.path.exists(path):
+                clips.append((path, row["feedback_cause"]))
+        return clips
+
+    def family_audio(self, family_id):
+        """All retained audio for unsupervised family adaptation."""
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT DISTINCT audio_path FROM events
+                WHERE family_id = ? AND audio_path IS NOT NULL
+            """, (family_id,)).fetchall()
+        paths = []
+        for row in rows:
+            path = os.path.join(self.root, row["audio_path"])
+            if os.path.exists(path):
+                paths.append(path)
+        return paths
+
 
 def _pairs(items):
     values = {}
@@ -571,6 +603,8 @@ def main():
     p_run.add_argument("--noise", type=float)
     p_run.add_argument("--feed-gap", type=float)
     p_run.add_argument("--sleep-gap", type=float)
+    p_run.add_argument("--adapter", help="family calibrator .joblib")
+    p_run.add_argument("--no-adapter", action="store_true")
     p_run.add_argument("--context-field", action="append", metavar="K=V")
     p_run.add_argument("--sensor", action="append", metavar="K=V")
 
@@ -597,6 +631,15 @@ def main():
     )
     p_train.add_argument("--out", required=True)
     p_train.add_argument("--family")
+
+    p_cal = sub.add_parser(
+        "calibrate",
+        help="build a per-family calibrator from feedback-labelled audio",
+    )
+    p_cal.add_argument("--family", required=True)
+    p_cal.add_argument("--out")
+    p_cal.add_argument("--shots", type=int, default=20)
+    p_cal.add_argument("--min-clips", type=int, default=10)
 
     p_withdraw = sub.add_parser("withdraw", help="withdraw consent")
     p_withdraw.add_argument("--family", required=True)
@@ -657,6 +700,71 @@ def main():
         print(f"feedback recorded for event {args.event}")
         return
 
+    if args.command == "calibrate":
+        import joblib
+        import numpy as np
+
+        from adapt import FamilyCalibrator
+        from audio_inference import CryAudioClassifier
+
+        family = store.get_family(args.family)
+        if not family:
+            raise SystemExit(f"Unknown family: {args.family}")
+        if family["withdrawn"]:
+            raise SystemExit(f"Family {args.family} has withdrawn consent")
+
+        labeled = store.labeled_audio(args.family)
+        if len(labeled) < args.min_clips:
+            raise SystemExit(
+                f"Need at least {args.min_clips} labelled audio clips, "
+                f"found {len(labeled)}. Record feedback with --cause first."
+            )
+
+        clf = CryAudioClassifier()
+        X_labeled, y_labeled, files = [], [], []
+        for path, label in labeled:
+            for feat in clf.features_from_file(path):
+                X_labeled.append(feat)
+                y_labeled.append(label)
+                files.append(path)
+
+        X_unlabeled = []
+        for path in store.family_audio(args.family):
+            X_unlabeled.extend(clf.features_from_file(path))
+
+        stats_path = os.path.join(
+            os.path.dirname(clf.model_path), "source_stats.npz"
+        )
+        mean = cov = None
+        if os.path.exists(stats_path):
+            stats = np.load(stats_path)
+            mean, cov = stats["mean"], stats["cov"]
+
+        calibrator = FamilyCalibrator.fit(
+            clf.pipeline,
+            clf.pipeline.named_steps["scaler"],
+            clf.classes,
+            np.asarray(X_labeled),
+            y_labeled,
+            files=files,
+            X_unlabeled=np.asarray(X_unlabeled) if X_unlabeled else None,
+            source_mean=mean,
+            source_cov=cov,
+            max_shots=args.shots,
+        )
+        out = args.out or os.path.join(
+            store.root, "adapters", f"{args.family}.joblib"
+        )
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        joblib.dump(calibrator, out)
+        print(f"adapter={out}")
+        print(f"method={calibrator.method} shots={calibrator.shots} "
+              f"clips={len(labeled)} segments={len(X_labeled)}")
+        if calibrator.validation:
+            print("validation_balanced_accuracy="
+                  + json.dumps(calibrator.validation, sort_keys=True))
+        return
+
     if args.command == "run":
         from config import load_config
         from pipeline import CryAgentPipeline
@@ -670,6 +778,14 @@ def main():
 
         scenario = args.scenario
         pipeline = CryAgentPipeline(load_config(), scenario)
+        if not args.no_adapter:
+            adapter_path = args.adapter or os.path.join(
+                store.root, "adapters", f"{args.family}.joblib"
+            )
+            if os.path.exists(adapter_path):
+                pipeline.audio_clf = pipeline._audio()
+                pipeline.audio_clf.load_family_adapter(adapter_path)
+                print(f"adapter={adapter_path}")
         profile = BabyProfile(age_days=family["age_days"])
         if args.feed_gap is not None:
             profile.last_feed_time = time.time() - args.feed_gap * 3600

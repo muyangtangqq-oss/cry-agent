@@ -165,13 +165,22 @@ class Scenario:
                 "ood_detector.joblib",
             )
         ood_path = os.environ.get("CRY_AGENT_OOD_PATH", ood_path)
-        return CryAudioClassifier(
+        adapter_path = (
+            self.audio_cfg.get("family_adapter")
+            or os.environ.get("CRY_AGENT_FAMILY_ADAPTER")
+        )
+        classifier = CryAudioClassifier(
             model_path=model_path,
             label_encoder_path=encoder_path,
             segment_duration=self.audio_cfg.get("segment_duration"),
             sample_rate=self.audio_cfg.get("sample_rate"),
             ood_path=ood_path,
         )
+        if adapter_path:
+            classifier.load_family_adapter(
+                os.path.expanduser(str(adapter_path))
+            )
+        return classifier
 
     def build_vision_extractor(self):
         from multimodal_signals import VisionSignalExtractor

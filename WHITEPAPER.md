@@ -298,6 +298,24 @@ This is deliberately local-first. No family data has been collected yet.
   transferable across collection setups. The OOD gate catches ~90% at a 15%
   false-alarm rate, but the trusted remainder is still 16–19% accurate.
 
+**Family calibration changes the picture.** With 30% of a held-out corpus's
+recordings used as parent-labelled calibration (split by recording, 5 seeds),
+an automatic per-family choice between CORAL and nearest-centroid prototypes
+raises the three-corpus mean from 40.5% / 26.3% to **57.6% / 44.1%**:
+
+| Held-out family | Global acc / bal | Calibrated acc / bal | Picked |
+|---|---:|---:|---|
+| Donate-a-Cry | 79.9% / 23.0% | 71.3% / 47.2% | CORAL |
+| InfantCry-DBL | 20.5% / 19.6% | 40.8% / 43.4% | prototype / CORAL+prototype |
+| DynamicSuperb | 21.2% / 36.3% | 60.7% / 41.7% | CORAL |
+
+Donate loses 8.6 pp of raw accuracy but gains 24.2 pp balanced accuracy —
+the desired trade for a monitor that should not answer `hungry` by default.
+This is still a public-corpus simulation: no real family has enrolled, the
+labels are parent-reported, and CORAL is transductive on unlabeled family
+audio. It is evidence that the collapse is partly a per-recording calibration
+problem, not evidence of home accuracy.
+
 ### Roadmap
 
 1. ✅ **Data augmentation:** pitch shift + time stretch + gain + noise for
@@ -309,9 +327,10 @@ This is deliberately local-first. No family data has been collected yet.
 4. ⏳ **Model export:** SVM → ONNX/TFLite for optimized edge inference.
 5. ⏳ **Multi-baby tracking:** ByteTrack + ReID for multi-child scenarios.
 6. ⏳ **Long-term pattern discovery:** weekly/monthly anomaly detection.
-7. ⏳ **Domain adaptation:** fix the LOCO collapse with label-semantics audit,
-   channel/room augmentation, domain-invariant features, and per-family
-   calibration.
+7. 🟡 **Domain adaptation:** per-family CORAL / prototype calibration is
+   implemented and lifts LOCO mean to 57.6% acc / 44.1% bal. Remaining:
+   label-semantics audit, channel/room augmentation, and validation on real
+   households.
 8. ✅ **OOD containment:** per-class Mahalanobis gate + session-level shift
    detection; prevents confident output from a clearly shifted corpus.
 
@@ -330,15 +349,20 @@ uv sync
 python train_combined_v2.py
 python train_augmented.py   # minority augmentation + CV comparison
 python train_ood.py         # fit gate + LOCO detection report
+python make_source_stats.py # CORAL source moments for family calibration
 
 # Test
 python tachyone_server.py 8901 &
+python jev_client.py        # live Jev smoke test (jev-1.14.0)
 python test_full_pipeline.py
 python test_scenario_engine.py
 python test_loco.py
+python test_adaptation.py --seeds 5
+python test_family_calibrator.py
 python test_ood.py
 python test_augment.py
 python test_pilot.py
+python test_pilot_calibration.py
 
 # Dashboard
 uvicorn api_server:app --host 0.0.0.0 --port 8000
