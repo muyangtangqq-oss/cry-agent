@@ -99,6 +99,10 @@ class LayeredJudge:
             final_cause, final_conf, model = j_answer, jev_conf, "jev"
             judge_model = j_result.get("model", "")
             alternatives = j_result.get("alternatives", [])
+            # Jev confirming a more confident lower tier is agreement, not
+            # a reason to downgrade the reported certainty.
+            if j_answer == audio_cause and audio_conf > final_conf:
+                final_conf = audio_conf
         elif t_answer and t_conf > 0:
             final_cause, final_conf, model = t_answer, t_conf, "tachyone"
             judge_model = t_result.get("model", "")

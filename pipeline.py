@@ -260,6 +260,8 @@ class CryAgentPipeline:
                 if j_answer and j_conf > 0:
                     final_cause, final_conf, model = j_answer, j_conf, "jev"
                     judge_model = j_result.get("model", "")
+                    if j_answer == fused_cause and fused_conf > final_conf:
+                        final_conf = fused_conf
                 elif t_answer and t_conf > 0:
                     final_cause, final_conf, model = t_answer, t_conf, "tachyone"
                     judge_model = t_result.get("model", "")
