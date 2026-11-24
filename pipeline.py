@@ -10,15 +10,11 @@ Fusion output feeds into the judge:
   - escalate flag → always goes to Tachyone/Jev
 """
 import time
-from dataclasses import dataclass, asdict
-from typing import Optional
+from dataclasses import dataclass
 
 from config import Config
-from audio_inference import CryAudioClassifier
-from multimodal_signals import (
-    Signal, VisionSignalExtractor, ContextSignalExtractor,
-    EnvSignalExtractor, MultimodalFuser,
-)
+from multimodal_signals import Signal
+from scenario_engine import Scenario, load_scenario
 from tachyone_client import TachyoneClient
 from jev_client import JevClient
 from baby_profile import BabyProfile
@@ -40,29 +36,47 @@ class PipelineResult:
     latency_ms: float
     per_signal: dict
     all_scores: dict
+    scenario: str = "baby_cry"
 
 
 class CryAgentPipeline:
     """Full multimodal → layered judge pipeline."""
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, scenario=None):
         self.cfg = cfg
-        self.audio_clf = CryAudioClassifier()
-        self.vision_ext = VisionSignalExtractor()
-        self.context_ext = ContextSignalExtractor()
-        self.env_ext = EnvSignalExtractor()
-        self.fuser = MultimodalFuser()
+        if isinstance(scenario, Scenario):
+            self.scenario = scenario
+        else:
+            self.scenario = load_scenario(scenario or cfg.scenario)
+
+        self.audio_clf = None
+        self.vision_ext = self.scenario.build_vision_extractor()
+        self.context_ext = self.scenario.build_context_extractor()
+        self.env_ext = self.scenario.build_env_extractor()
+        self.fuser = self.scenario.build_fuser()
+        self.direct_threshold = self.scenario.threshold("direct_output", 0.80)
+        self.tachyone_high = self.scenario.threshold("tachyone_high", 0.70)
+        self.tachyone_low = self.scenario.threshold("tachyone_low", 0.40)
         self.tachyone = TachyoneClient(cfg)
         self.jev = JevClient(cfg)
+
+    def _audio(self):
+        if self.audio_clf is None:
+            self.audio_clf = self.scenario.build_audio_classifier()
+        return self.audio_clf
 
     def run(
         self,
         audio_path: str = None,
+        audio_array=None,
+        sr: int = None,
         postures: list[str] = None,
         face_state: str = None,
         room_temp: float = None,
         ambient_noise_db: float = None,
         profile: BabyProfile = None,
+        context_values: dict = None,
+        env_values: dict = None,
     ) -> PipelineResult:
         """Run the full pipeline.
 
@@ -73,23 +87,35 @@ class CryAgentPipeline:
             room_temp: room temperature in Celsius
             ambient_noise_db: ambient noise level
             profile: baby profile with context timings
+            context_values: extra context fields declared in the scenario
+            env_values: extra sensor fields declared in the scenario
         """
+        audio_clf = (
+            self._audio() if (audio_path or audio_array is not None) else None
+        )
         t0 = time.perf_counter()
         if profile is None:
-            profile = BabyProfile()
+            profile = BabyProfile(age_days=self.scenario.default_age_days)
         postures = postures or []
 
         # Tier 0: Extract all signals
         signals = []
 
         # Audio signal
-        if audio_path:
+        if audio_clf is not None:
+            if audio_path:
+                audio_result = audio_clf.classify_file(audio_path)
+            else:
+                audio_result = audio_clf.classify_array(
+                    audio_array,
+                    sr or int(self.scenario.audio_cfg.get("sample_rate", 16000)),
+                )
             audio_sig = Signal(
                 name="cry_classification",
-                value=self.audio_clf.classify_file(audio_path)["cause"],
-                confidence=self.audio_clf.classify_file(audio_path)["confidence"],
+                value=audio_result["cause"],
+                confidence=audio_result["confidence"],
                 source="audio",
-                raw=self.audio_clf.classify_file(audio_path).get("probabilities", {}),
+                raw={"probabilities": audio_result.get("probabilities", {})},
             )
         else:
             audio_sig = Signal(
@@ -109,11 +135,13 @@ class CryAgentPipeline:
         signals.append(vision_sig)
 
         # Context signal
-        context_sig = self.context_ext.extract(profile)
+        context_sig = self.context_ext.extract(profile, values=context_values)
         signals.append(context_sig)
 
         # Env signal
-        env_sig = self.env_ext.extract(room_temp, None, ambient_noise_db)
+        env_sig = self.env_ext.extract(
+            room_temp, None, ambient_noise_db, values=env_values
+        )
         signals.append(env_sig)
 
         # Tier 1: Fuse signals
@@ -127,13 +155,13 @@ class CryAgentPipeline:
         # High confidence → direct output
         # Escalate flag or medium confidence → Tachyone
         # Low confidence → Jev
-        if fused_conf >= 0.80 and not escalate:
+        if fused_conf >= self.direct_threshold and not escalate:
             final_cause = fused_cause
             final_conf = fused_conf
             model = "fusion"
         else:
             # Build question for Tachyone/Jev
-            causes = self.cfg.cry_causes + ["lonely", "startle", "temperature"]
+            causes = self.scenario.classes or self.cfg.cry_causes
             question = (
                 f"Fused analysis: {fused_cause} ({fused_conf:.0%}). "
                 f"Audio: {audio_sig.value} ({audio_sig.confidence:.0%}). "
@@ -152,7 +180,7 @@ class CryAgentPipeline:
             t_conf = t_result.get("confidence", 0.0)
             t_answer = t_result.get("answer")
 
-            if t_conf >= self.cfg.tachyone_high and not escalate:
+            if t_conf >= self.tachyone_high and not escalate:
                 final_cause = t_answer
                 final_conf = t_conf
                 model = "tachyone"
@@ -194,4 +222,5 @@ class CryAgentPipeline:
             latency_ms=round(latency, 1),
             per_signal=fused["per_signal"],
             all_scores=fused["all_scores"],
+            scenario=self.scenario.name,
         )

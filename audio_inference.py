@@ -19,15 +19,37 @@ SEGMENT_DURATION = 2.0
 
 
 class CryAudioClassifier:
-    def __init__(self):
-        self.pipeline = joblib.load(os.path.join(MODEL_DIR, "cry_classifier.joblib"))
-        self.label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.joblib"))
+    def __init__(self, model_path=None, label_encoder_path=None,
+                 segment_duration=None, sample_rate=None):
+        self.model_path = os.path.expanduser(
+            model_path or os.path.join(MODEL_DIR, "cry_classifier.joblib")
+        )
+        self.label_encoder_path = os.path.expanduser(
+            label_encoder_path or os.path.join(MODEL_DIR, "label_encoder.joblib")
+        )
+        self.sample_rate = int(sample_rate or SR)
+        self.segment_duration = float(segment_duration or SEGMENT_DURATION)
+
+        for path, hint in (
+            (self.model_path, "audio classifier model"),
+            (self.label_encoder_path, "label encoder"),
+        ):
+            if not os.path.exists(path):
+                raise FileNotFoundError(
+                    f"{hint} not found: {path}. Train one first "
+                    "(see train_combined_v2.py) or point "
+                    "signals.audio.model_path at an existing model."
+                )
+
+        self.pipeline = joblib.load(self.model_path)
+        self.label_encoder = joblib.load(self.label_encoder_path)
         self.classes = list(self.label_encoder.classes_)
 
-    def _extract_features(self, y, sr=SR):
-        if sr != SR:
-            y = librosa.resample(y, orig_sr=sr, target_sr=SR)
-            sr = SR
+    def _extract_features(self, y, sr=None):
+        sr = sr or self.sample_rate
+        if sr != self.sample_rate:
+            y = librosa.resample(y, orig_sr=sr, target_sr=self.sample_rate)
+            sr = self.sample_rate
         if len(y) < sr * 0.3:
             return None
         y = y / (np.max(np.abs(y)) + 1e-8)
@@ -59,8 +81,8 @@ class CryAudioClassifier:
             [f0_mean, f0_std, voiced_ratio],
         ])
 
-    def _segments(self, y, sr=SR):
-        seg_len = int(sr * SEGMENT_DURATION)
+    def _segments(self, y, sr=None):
+        seg_len = int((sr or self.sample_rate) * self.segment_duration)
         if len(y) < seg_len:
             y = np.pad(y, (0, seg_len - len(y)))
             return [y]

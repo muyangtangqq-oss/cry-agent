@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
+    scenario: str = "baby_cry"
     typesafe_api_key: str = ""
     typesafe_base_url: str = "https://api.typesafe.ai/v1"
     tachyone_port: int = 8901
@@ -22,6 +23,7 @@ class Config:
 
 def load_config() -> Config:
     cfg = Config()
+    cfg.scenario = os.environ.get("CRY_AGENT_SCENARIO", cfg.scenario)
     import json
     p = os.path.expanduser("~/.config/magpie/providers.json")
     if os.path.exists(p):

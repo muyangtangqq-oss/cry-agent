@@ -70,7 +70,9 @@ class BabyProfile:
         if len(self.cry_history) > 500:
             self.cry_history = self.cry_history[-500:]
 
-    def record_feedback(self, event_idx: int, actual_cause: str):
+    def record_feedback(self, event_idx: int, actual_cause: str,
+                        correct_boost: float = 1.05,
+                        wrong_penalty: float = 0.90):
         """Adjust weights based on feedback (Level 2)."""
         if event_idx >= len(self.cry_history):
             return
@@ -79,12 +81,12 @@ class BabyProfile:
 
         if event["cause"] == actual_cause:
             for sig_key in self.signal_weights:
-                self.signal_weights[sig_key] *= 1.05
+                self.signal_weights[sig_key] *= correct_boost
         else:
             note = f'Predicted "{event["cause"]}" but was "{actual_cause}".'
             self.misjudgment_notes.append(note)
             top_sig = max(self.signal_weights, key=self.signal_weights.get)
-            self.signal_weights[top_sig] *= 0.90
+            self.signal_weights[top_sig] *= wrong_penalty
 
         total = sum(self.signal_weights.values())
         if total > 0:

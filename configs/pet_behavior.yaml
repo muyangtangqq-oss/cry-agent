@@ -1,0 +1,111 @@
+# Pet Behavior Diagnosis — scenario config
+name: "Pet Behavior Monitoring"
+description: "Diagnose why a dog/cat is vocalizing or acting abnormally"
+
+signals:
+  audio:
+    enabled: true
+    model_path: "~/.config/pet-agent/models/pet_sound_classifier.joblib"
+    label_encoder_path: "~/.config/pet-agent/models/label_encoder.joblib"
+    classes: [bark_alert, bark_anxious, whine_need, whine_anxiety, growl_warning, howl, purr, normal]
+    segment_duration: 2.0
+    sample_rate: 16000
+
+  vision:
+    enabled: true
+    detector: mediapipe  # would use animal pose model in production
+    posture_correlation:
+      tail_wag_fast: {excited: 0.80, happy: 0.75}
+      tail_tucked: {fear: 0.85, anxiety: 0.70}
+      ears_back: {fear: 0.75, anxiety: 0.60}
+      ears_perked: {alert: 0.80, curious: 0.65}
+      pacing: {anxiety: 0.70, need_outdoor: 0.50}
+      circling: {anxiety: 0.60, medical_issue: 0.40}
+      lying_flat: {fatigue: 0.60, illness: 0.50}
+      scratching_door: {need_outdoor: 0.85}
+      staring_at_food: {hungry: 0.80}
+      licking_paws_excessively: {anxiety: 0.60, allergy: 0.50}
+      shaking: {fear: 0.65, cold: 0.50}
+      play_bow: {playful: 0.90}
+    critical_postures:
+      tail_tucked: {fear: 0.85}
+      scratching_door: {need_outdoor: 0.85}
+      play_bow: {playful: 0.90}
+      ears_back: {fear: 0.75}
+
+  context:
+    enabled: true
+    fields:
+      - name: hours_since_walk
+        rules:
+          - condition: "> 6"
+            causes: {need_outdoor: 0.6}
+      - name: hours_since_meal
+        rules:
+          - condition: "> 4"
+            causes: {hungry: 0.5}
+      - name: hours_alone
+        rules:
+          - condition: "> 4"
+            causes: {anxiety: 0.4, boredom: 0.3}
+
+  env:
+    enabled: true
+    sensors:
+      door_motion:
+        rules:
+          - condition: "detected"
+            causes: {need_outdoor: 0.60}
+      room_temp:
+        rules:
+          - condition: "< 15"
+            causes: {cold: 0.55}
+
+fusion:
+  weights:
+    audio: 0.35
+    vision: 0.30
+    context: 0.25
+    env: 0.10
+  agreement_boost:
+    two_sources: 0.15
+    three_sources: 0.25
+  disagreement_escalate_threshold: 0.15
+  critical_override:
+    enabled: true
+    min_vision_confidence: 0.78   # animal pose is noisier than human pose
+    very_strong_confidence: 0.90
+    conditions:
+      - vision_confidence_greater_than_audio
+      - context_disagrees_with_audio
+  env_override:
+    enabled: false  # pet env signals are weaker
+
+judge:
+  tachyone:
+    url: "http://127.0.0.1:8901/v1/systemone"
+  jev:
+    url: "http://127.0.0.1:3425/v1/systemone"
+    model: "typesafe/jev-latest"
+    api_key_from: "magpie_providers"
+  thresholds:
+    direct_output: 0.75   # lower — pet behavior is less critical
+    tachyone_high: 0.65
+    tachyone_low: 0.40
+
+self_learning:
+  bandit:
+    correct_boost: 1.05
+    wrong_penalty: 0.90
+  personal_library:
+    enabled: true
+    embedding: mfcc_13
+    similarity_threshold: 40.0  # tighter — pet sounds are more distinctive
+    max_entries: 300
+  misjudgment_notes:
+    max_recent: 5
+
+profile:
+  default_age_days: 1095  # ~3 years
+  default_walk_interval_hours: 6
+  storage_path: "~/.config/pet-agent/profile.json"

@@ -1,0 +1,130 @@
+# Elderly Fall Diagnosis — scenario config
+name: "Elderly Care Monitoring"
+description: "Diagnose elderly distress: fall detection + groan classification + posture"
+
+signals:
+  audio:
+    enabled: true
+    model_path: "~/.config/elderly-agent/models/sound_classifier.joblib"
+    label_encoder_path: "~/.config/elderly-agent/models/label_encoder.joblib"
+    classes: [fall_sound, groan, call_for_help, coughing, normal_speech, silence]
+    segment_duration: 2.0
+    sample_rate: 16000
+    # Training data: ElderReact + proprietary fall sound datasets
+
+  vision:
+    enabled: true
+    detector: mediapipe
+    posture_correlation:
+      lying_down: {fall: 0.90, unconscious: 0.70}
+      curled_fetal: {pain: 0.75, fall: 0.50}
+      sitting_normal: {normal: 0.80}
+      standing_normal: {normal: 0.85}
+      reaching_for_support: {dizziness: 0.70, fall_risk: 0.60}
+      slumped: {unconscious: 0.65, fatigue: 0.50}
+      hand_on_chest: {heart_issue: 0.75}
+      hand_on_head: {headache: 0.70, dizziness: 0.60}
+      trembling: {cold: 0.50, fear: 0.60}
+      walking_steady: {normal: 0.80}
+      walking_unsteady: {fall_risk: 0.70, dizziness: 0.55}
+    critical_postures:
+      lying_down: {fall: 0.90}
+      curled_fetal: {pain: 0.75}
+      hand_on_chest: {heart_issue: 0.75}
+      slumped: {unconscious: 0.65}
+      reaching_for_support: {dizziness: 0.70}
+
+  context:
+    enabled: true
+    fields:
+      - name: hours_since_medication
+        rules:
+          - condition: "> 8"
+            causes: {medication_missed: 0.5}
+      - name: blood_pressure
+        rules:
+          - condition: "> 140"
+            causes: {heart_issue: 0.4}
+          - condition: "< 90"
+            causes: {dizziness: 0.5}
+      - name: blood_sugar
+        rules:
+          - condition: "< 3.9"
+            causes: {hypoglycemia: 0.7}
+          - condition: "> 11"
+            causes: {hyperglycemia: 0.5}
+      - name: time_of_day
+        rules:
+          - condition: "06:00-09:00"
+            causes: {medication_window: 0.3}
+          - condition: "22:00-06:00"
+            causes: {fall_risk: 0.2}  # nighttime fall risk
+
+  env:
+    enabled: true
+    sensors:
+      floor_pressure:
+        rules:
+          - condition: "> 50"
+            causes: {fall: 0.85}
+      room_temp:
+        rules:
+          - condition: "< 18"
+            causes: {cold: 0.60}
+          - condition: "> 28"
+            causes: {heat_stress: 0.55}
+      gas_level:
+        rules:
+          - condition: "> 800"   # ppm, alarm threshold
+            causes: {gas_leak: 0.90}
+
+fusion:
+  weights:
+    audio: 0.30
+    vision: 0.35    # vision is primary for fall detection
+    context: 0.25
+    env: 0.10
+  agreement_boost:
+    two_sources: 0.15
+    three_sources: 0.25
+  disagreement_escalate_threshold: 0.15
+  critical_override:
+    enabled: true
+    min_vision_confidence: 0.80
+    very_strong_confidence: 0.90
+    conditions:
+      - vision_confidence_greater_than_audio
+      - env_strongly_indicates_different  # floor pressure sensor
+  env_override:
+    enabled: true
+    causes: [fall, gas_leak]
+    min_env_confidence: 0.80
+
+judge:
+  tachyone:
+    url: "http://127.0.0.1:8901/v1/systemone"
+  jev:
+    url: "http://127.0.0.1:3425/v1/systemone"
+    model: "typesafe/jev-latest"
+    api_key_from: "magpie_providers"
+  thresholds:
+    direct_output: 0.85    # higher threshold — elder care needs more certainty
+    tachyone_high: 0.70
+    tachyone_low: 0.40
+
+self_learning:
+  bandit:
+    correct_boost: 1.05
+    wrong_penalty: 0.90
+  personal_library:
+    enabled: true
+    embedding: mfcc_13
+    similarity_threshold: 60.0  # wider threshold — elder voices vary more
+    max_entries: 500
+  misjudgment_notes:
+    max_recent: 10  # more notes — elder care has more edge cases
+
+profile:
+  default_age_days: 25555  # ~70 years
+  default_medication_interval_hours: 8
+  storage_path: "~/.config/elderly-agent/profile.json"

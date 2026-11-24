@@ -1,0 +1,133 @@
+# Baby Cry Diagnosis — default scenario
+name: "Baby Cry Diagnosis"
+description: "Diagnose why a baby is crying using audio + posture + context + env"
+
+# Signal sources
+signals:
+  audio:
+    enabled: true
+    model_path: "~/.config/cry-agent/models/cry_classifier.joblib"
+    label_encoder_path: "~/.config/cry-agent/models/label_encoder.joblib"
+    classes: [hungry, sleepy, discomfort, pain, burp, lonely, startle, temperature]
+    segment_duration: 2.0
+    sample_rate: 16000
+
+  vision:
+    enabled: true
+    detector: mediapipe  # mediapipe | annotation | none
+    # Posture → cause correlation with confidence weights
+    posture_correlation:
+      rooting: {hungry: 0.88}
+      sucking_fingers: {hungry: 0.80}
+      rubbing_eyes: {sleepy: 0.85}
+      yawning: {sleepy: 0.90}
+      arching_back: {pain: 0.92, burp: 0.15}
+      clenched_fists: {pain: 0.85}
+      kicking_legs: {discomfort: 0.55, hungry: 0.25}
+      squirming: {discomfort: 0.60}
+      arms_spread: {startle: 0.95}
+      looking_around: {lonely: 0.60}
+      reaching_up: {lonely: 0.85}
+      limp: {sleepy: 0.50}
+      fetal_position: {temperature: 0.70, discomfort: 0.25}
+      face_red: {temperature: 0.75, pain: 0.20}
+      face_pale: {temperature: 0.60}
+    # Postures that can override audio (high certainty single signals)
+    critical_postures:
+      arching_back: {pain: 0.92}
+      clenched_fists: {pain: 0.85}
+      arms_spread: {startle: 0.95}
+      rooting: {hungry: 0.88}
+      sucking_fingers: {hungry: 0.80}
+      rubbing_eyes: {sleepy: 0.85}
+      yawning: {sleepy: 0.90}
+      reaching_up: {lonely: 0.85}
+
+  context:
+    enabled: true
+    fields:
+      - name: hours_since_feed
+        rules:
+          - condition: "> 2.5"
+            causes: {hungry: 0.6}
+          - condition: "< 0.5"
+            causes: {burp: 0.3, hungry: -0.3}
+      - name: hours_since_sleep
+        rules:
+          - condition: "> 3.5"
+            causes: {sleepy: 0.5}
+      - name: age_days
+        rules:
+          - condition: "> 21"
+            time_window: "16:00-20:00"
+            causes: {pain: 0.2}  # colic window
+
+  env:
+    enabled: true
+    sensors:
+      room_temp:
+        rules:
+          - condition: "> 26"
+            causes: {temperature: 0.70}
+          - condition: "< 20"
+            causes: {temperature: 0.65}
+      ambient_noise_db:
+        rules:
+          - condition: "> 80"
+            causes: {startle: 0.55}
+
+# Fusion weights (adjusted by Bandit self-learning)
+fusion:
+  weights:
+    audio: 0.40
+    vision: 0.30
+    context: 0.20
+    env: 0.10
+  agreement_boost:
+    two_sources: 0.15
+    three_sources: 0.25
+  disagreement_escalate_threshold: 0.15  # top-2 margin < 15% → escalate
+  critical_override:
+    enabled: true
+    min_vision_confidence: 0.85
+    very_strong_confidence: 0.90
+    conditions:
+      - vision_confidence_greater_than_audio  # standard
+      - context_disagrees_with_audio          # context doesn't support audio
+      - vision_confidence_very_strong         # >= 0.90 even if audio higher
+  env_override:
+    enabled: true
+    causes: [temperature]
+    min_env_confidence: 0.65
+
+# Layered judge
+judge:
+  tachyone:
+    url: "http://127.0.0.1:8901/v1/systemone"
+  jev:
+    url: "http://127.0.0.1:3425/v1/systemone"
+    model: "typesafe/jev-latest"
+    api_key_from: "magpie_providers"  # read from ~/.config/magpie/providers.json
+  thresholds:
+    direct_output: 0.80
+    tachyone_high: 0.70
+    tachyone_low: 0.40
+
+# Self-learning
+self_learning:
+  bandit:
+    correct_boost: 1.05
+    wrong_penalty: 0.90
+  personal_library:
+    enabled: true
+    embedding: mfcc_13
+    similarity_threshold: 50.0
+    max_entries: 500
+  misjudgment_notes:
+    max_recent: 5
+
+# Profile
+profile:
+  default_age_days: 42
+  default_feed_interval_hours: 2.5
+  storage_path: "~/.config/cry-agent/profile.json"

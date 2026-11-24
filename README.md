@@ -33,7 +33,7 @@ USB → Noise level                                   ┘
 # Setup
 uv venv --python 3.12
 source .venv/bin/activate
-pip install librosa soundfile scikit-learn joblib imbalanced-learn httpx
+pip install librosa soundfile scikit-learn joblib imbalanced-learn httpx pyyaml
 
 # Train (downloads Donate-a-Cry + uses InfantCry-DBL + DynamicSuperb)
 python train_combined_v2.py
@@ -63,6 +63,9 @@ python live_camera.py --replay-audio <wav> --postures rooting
 |------|---------|
 | `audio_inference.py` | Cry audio classifier (8 classes, SVM) |
 | `multimodal_signals.py` | Signal fusion with critical posture override |
+| `scenario_engine.py` | Loads a YAML scenario and builds the pipeline |
+| `rules.py` | Numeric / time-window / boolean rule evaluator |
+| `configs/*.yaml` | Baby, elderly-care, and pet-behavior scenarios |
 | `vision_mediapipe.py` | MediaPipe BlazePose posture detector |
 | `vision_detector.py` | Annotation-based fallback (no camera) |
 | `pipeline.py` | End-to-end: fusion → layered judge |
@@ -73,6 +76,47 @@ python live_camera.py --replay-audio <wav> --postures rooting
 | `live_camera.py` | Real-time camera + mic demo |
 | `live_replay.py` | File-based streaming simulation |
 | `deploy_jetson.sh` | Jetson deployment script |
+
+## Multi-Scenario (config-driven)
+
+The same inference stack powers different monitoring domains. A scenario YAML
+declares the audio classes, posture→cause map, context/env rules, fusion
+weights, override policy, judge thresholds, and profile defaults:
+
+```yaml
+signals:
+  audio:
+    classes: [fall_sound, groan, call_for_help, coughing, normal_speech, silence]
+  vision:
+    posture_correlation:
+      lying_down: {fall: 0.90, unconscious: 0.70}
+  env:
+    sensors:
+      floor_pressure:
+        rules:
+          - condition: "> 50"
+            causes: {fall: 0.85}
+fusion:
+  weights: {audio: 0.30, vision: 0.35, context: 0.25, env: 0.10}
+  critical_override:
+    min_vision_confidence: 0.80
+  env_override:
+    causes: [fall, gas_leak]
+```
+
+Included scenarios: `baby_cry`, `elderly_care`, `pet_behavior`.
+
+```bash
+python main.py --list
+python main.py --describe elderly_care
+python main.py --scenario elderly_care --postures lying_down \
+  --sensor floor_pressure=60 --json
+python test_scenario_engine.py   # baby regression + elderly/pet extension
+CRY_AGENT_SCENARIO=elderly_care python live_camera.py --camera 0
+```
+
+Adding a domain means adding a YAML file; training its audio classifier is the
+only domain-specific model work.
 
 ## Model Performance
 
@@ -91,13 +135,13 @@ python live_camera.py --replay-audio <wav> --postures rooting
 
 | Part | Model | Price |
 |------|-------|-------|
-| Board | Jetson Orin Nano 8GB | ¥1500 |
+| Board | Jetson Orin Nano 8GB developer kit | ¥3000 |
 | Storage | 128GB NVMe SSD | ¥80 |
 | Camera | Raspberry Pi Camera V3 | ¥120 |
 | Microphone | USB microphone | ¥40 |
 | Temp sensor | DHT22 | ¥15 |
 | Noise sensor | USB decibel module | ¥40 |
-| Total | | ~¥1900 |
+| Total | | ~¥3400 |
 
 ## Self-Learning
 

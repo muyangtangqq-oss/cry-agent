@@ -11,6 +11,109 @@ v3 fixes:
 import time
 from dataclasses import dataclass, field
 
+from rules import evaluate_condition, time_in_window
+
+
+DEFAULT_POSTURE_CORRELATION = {
+    "rooting": {"hungry": 0.88},
+    "sucking_fingers": {"hungry": 0.80},
+    "rubbing_eyes": {"sleepy": 0.85},
+    "yawning": {"sleepy": 0.90},
+    "arching_back": {"pain": 0.92, "burp": 0.15},
+    "clenched_fists": {"pain": 0.85},
+    "kicking_legs": {"discomfort": 0.55, "hungry": 0.25},
+    "squirming": {"discomfort": 0.60},
+    "arms_spread": {"startle": 0.95},
+    "looking_around": {"lonely": 0.60},
+    "reaching_up": {"lonely": 0.85},
+    "limp": {"sleepy": 0.50},
+    "fetal_position": {"temperature": 0.70, "discomfort": 0.25},
+    "face_red": {"temperature": 0.75, "pain": 0.20},
+    "face_pale": {"temperature": 0.60},
+}
+
+DEFAULT_CRITICAL_POSTURES = {
+    "arching_back": {"pain": 0.92},
+    "clenched_fists": {"pain": 0.85},
+    "arms_spread": {"startle": 0.95},
+    "rooting": {"hungry": 0.88},
+    "sucking_fingers": {"hungry": 0.80},
+    "rubbing_eyes": {"sleepy": 0.85},
+    "yawning": {"sleepy": 0.90},
+    "reaching_up": {"lonely": 0.85},
+}
+
+DEFAULT_CONTEXT_RULES = [
+    {
+        "name": "hours_since_feed",
+        "rules": [
+            {"condition": "> 2.5", "causes": {"hungry": 0.6}},
+            {"condition": "< 0.5", "causes": {"burp": 0.3, "hungry": -0.3}},
+        ],
+    },
+    {
+        "name": "hours_since_sleep",
+        "rules": [{"condition": "> 3.5", "causes": {"sleepy": 0.5}}],
+    },
+    {
+        "name": "age_days",
+        "rules": [{
+            "condition": "> 21",
+            "time_window": "16:00-20:00",
+            "causes": {"pain": 0.2},
+        }],
+    },
+]
+
+DEFAULT_ENV_SENSORS = {
+    "room_temp": [
+        {"condition": "> 26", "causes": {"temperature": 0.70}},
+        {"condition": "< 20", "causes": {"temperature": 0.65}},
+    ],
+    "ambient_noise_db": [
+        {"condition": "> 80", "causes": {"startle": 0.55}},
+    ],
+}
+
+DEFAULT_WEIGHTS = {"audio": 0.40, "vision": 0.30, "context": 0.20, "env": 0.10}
+DEFAULT_AGREEMENT_BOOST = {"two_sources": 0.15, "three_sources": 0.25}
+DEFAULT_CRITICAL_OVERRIDE = {
+    "enabled": True,
+    "min_vision_confidence": 0.0,
+    "very_strong_confidence": 0.90,
+    "conditions": [
+        "vision_confidence_greater_than_audio",
+        "context_disagrees_with_audio",
+        "vision_confidence_very_strong",
+    ],
+}
+DEFAULT_ENV_OVERRIDE = {
+    "enabled": True,
+    "causes": ["temperature"],
+    "min_env_confidence": 0.65,
+}
+
+
+def profile_values(profile) -> dict:
+    """Pull the generic time-based context fields off a profile object."""
+    if profile is None:
+        return {}
+    values = {}
+    if hasattr(profile, "age_days"):
+        values["age_days"] = profile.age_days
+    for field_name in ("hours_since_feed", "hours_since_sleep"):
+        fn = getattr(profile, field_name, None)
+        if callable(fn):
+            try:
+                values[field_name] = fn()
+            except Exception:
+                pass
+    # Legacy aliases kept for custom rules written before the YAML schema.
+    values.setdefault("hours_feed", values.get("hours_since_feed"))
+    values.setdefault("hours_sleep", values.get("hours_since_sleep"))
+    values.setdefault("age", values.get("age_days"))
+    return values
+
 
 @dataclass
 class Signal:
@@ -37,34 +140,26 @@ class AudioSignalExtractor:
 
 
 class VisionSignalExtractor:
-    CRITICAL_POSTURES = {
-        "arching_back": {"pain": 0.92},
-        "clenched_fists": {"pain": 0.85},
-        "arms_spread": {"startle": 0.95},
-        "rooting": {"hungry": 0.88},
-        "sucking_fingers": {"hungry": 0.80},
-        "rubbing_eyes": {"sleepy": 0.85},
-        "yawning": {"sleepy": 0.90},
-        "reaching_up": {"lonely": 0.85},
-    }
+    CRITICAL_POSTURES = DEFAULT_CRITICAL_POSTURES
+    POSTURE_CORRELATION = DEFAULT_POSTURE_CORRELATION
 
-    POSTURE_CORRELATION = {
-        "rooting": {"hungry": 0.88},
-        "sucking_fingers": {"hungry": 0.80},
-        "rubbing_eyes": {"sleepy": 0.85},
-        "yawning": {"sleepy": 0.90},
-        "arching_back": {"pain": 0.92, "burp": 0.15},
-        "clenched_fists": {"pain": 0.85},
-        "kicking_legs": {"discomfort": 0.55, "hungry": 0.25},
-        "squirming": {"discomfort": 0.60},
-        "arms_spread": {"startle": 0.95},
-        "looking_around": {"lonely": 0.60},
-        "reaching_up": {"lonely": 0.85},
-        "limp": {"sleepy": 0.50},
-        "fetal_position": {"temperature": 0.70, "discomfort": 0.25},
-        "face_red": {"temperature": 0.75, "pain": 0.20},
-        "face_pale": {"temperature": 0.60},
-    }
+    def __init__(self, posture_correlation=None, critical_postures=None,
+                 critical_min_weight=0.85, critical_boost=0.10,
+                 max_confidence=0.85, critical_max_confidence=0.97):
+        self.posture_correlation = (
+            posture_correlation
+            if posture_correlation is not None
+            else self.POSTURE_CORRELATION
+        )
+        self.critical_postures = (
+            critical_postures
+            if critical_postures is not None
+            else self.CRITICAL_POSTURES
+        )
+        self.critical_min_weight = critical_min_weight
+        self.critical_boost = critical_boost
+        self.max_confidence = max_confidence
+        self.critical_max_confidence = critical_max_confidence
 
     def extract(self, postures, face_state=None):
         all_postures = list(postures)
@@ -74,8 +169,8 @@ class VisionSignalExtractor:
         scores = {}
         critical_hits = []
         for posture in all_postures:
-            corr = self.POSTURE_CORRELATION.get(posture, {})
-            is_critical = posture in self.CRITICAL_POSTURES
+            corr = self.posture_correlation.get(posture, {})
+            is_critical = posture in self.critical_postures
             for cause, weight in corr.items():
                 scores[cause] = scores.get(cause, 0) + weight
                 if is_critical:
@@ -87,12 +182,17 @@ class VisionSignalExtractor:
 
         best = max(scores, key=scores.get)
         total = sum(scores.values())
-        base_conf = min(scores[best] / max(total, 1) + 0.15, 0.85)
+        base_conf = min(
+            scores[best] / max(total, 1) + 0.15, self.max_confidence
+        )
 
         is_critical = False
         for posture, cause, weight in critical_hits:
-            if cause == best and weight >= 0.85:
-                base_conf = min(base_conf + 0.10, 0.97)
+            if cause == best and weight >= self.critical_min_weight:
+                base_conf = min(
+                    base_conf + self.critical_boost,
+                    self.critical_max_confidence,
+                )
                 is_critical = True
 
         return Signal("posture", best, round(base_conf, 3), "vision",
@@ -101,50 +201,111 @@ class VisionSignalExtractor:
 
 
 class ContextSignalExtractor:
-    def extract(self, profile):
-        hf = profile.hours_since_feed()
-        hs = profile.hours_since_sleep()
-        age = profile.age_days
+    def __init__(self, fields=None):
+        self.fields = fields if fields is not None else DEFAULT_CONTEXT_RULES
+
+    def extract(self, profile=None, values=None, now=None):
+        ctx = profile_values(profile)
+        if values:
+            ctx.update(values)
+        ctx.setdefault("time_of_day", time.strftime("%H:%M", now or time.localtime()))
+
         scores = {}
-        if hf > 2.5: scores["hungry"] = 0.6
-        elif hf < 0.5: scores["burp"] = 0.3; scores["hungry"] = -0.3
-        if hs > 3.5: scores["sleepy"] = 0.5
-        if age > 21 and 16 <= time.localtime().tm_hour <= 20:
-            scores["pain"] = 0.2
+        for field_cfg in self.fields:
+            name = field_cfg.get("name")
+            value = ctx.get(name)
+            if value is None:
+                continue
+            for rule in field_cfg.get("rules", []):
+                window = rule.get("time_window")
+                if window and not time_in_window(window, now):
+                    continue
+                if not evaluate_condition(rule.get("condition"), value, now):
+                    continue
+                for cause, weight in (rule.get("causes") or {}).items():
+                    scores[cause] = scores.get(cause, 0.0) + float(weight)
+
+        raw = {"values": ctx}
+        if "hours_since_feed" in ctx:
+            raw["hours_feed"] = ctx["hours_since_feed"]
+        if "hours_since_sleep" in ctx:
+            raw["hours_sleep"] = ctx["hours_since_sleep"]
+        if "age_days" in ctx:
+            raw["age"] = ctx["age_days"]
+        if scores:
+            raw["scores"] = {k: round(v, 3) for k, v in scores.items()}
+
         if not scores:
-            return Signal("context", "neutral", 0.1, "context",
-                          {"hours_feed": hf, "hours_sleep": hs})
+            return Signal("context", "neutral", 0.1, "context", raw)
+
         best = max(scores, key=scores.get)
         return Signal("context",
                       best if scores.get(best, 0) > 0 else "neutral",
                       round(abs(scores[best]), 3), "context",
-                      {"hours_feed": hf, "hours_sleep": hs, "age": age})
+                      raw)
 
 
 class EnvSignalExtractor:
-    def extract(self, room_temp=None, humidity=None, ambient_noise_db=None):
+    def __init__(self, sensors=None):
+        self.sensors = sensors if sensors is not None else DEFAULT_ENV_SENSORS
+
+    def extract(self, room_temp=None, humidity=None, ambient_noise_db=None,
+                values=None, now=None):
+        sensor_values = {
+            "room_temp": room_temp,
+            "humidity": humidity,
+            "ambient_noise_db": ambient_noise_db,
+        }
+        if values:
+            sensor_values.update(values)
+
         scores = {}
-        if room_temp is not None:
-            if room_temp > 26: scores["temperature"] = 0.70
-            elif room_temp < 20: scores["temperature"] = 0.65
-        if ambient_noise_db is not None and ambient_noise_db > 80:
-            scores["startle"] = 0.55
+        for sensor, rules in self.sensors.items():
+            value = sensor_values.get(sensor)
+            if value is None:
+                continue
+            if isinstance(rules, dict):
+                rules = rules.get("rules", [])
+            for rule in rules:
+                if evaluate_condition(rule.get("condition"), value, now):
+                    for cause, weight in (rule.get("causes") or {}).items():
+                        scores[cause] = scores.get(cause, 0.0) + float(weight)
+
+        raw = {
+            "temp": room_temp,
+            "noise_db": ambient_noise_db,
+            "values": sensor_values,
+        }
         if not scores:
-            return Signal("env", "normal", 0.05, "env",
-                          {"temp": room_temp, "noise_db": ambient_noise_db})
+            return Signal("env", "normal", 0.05, "env", raw)
+
+        raw["scores"] = {k: round(v, 3) for k, v in scores.items()}
         best = max(scores, key=scores.get)
-        return Signal("env", best, scores[best], "env",
-                      {"temp": room_temp, "noise_db": ambient_noise_db})
+        return Signal("env", best, scores[best], "env", raw)
 
 
 class MultimodalFuser:
-    DEFAULT_WEIGHTS = {
-        "audio": 0.40, "vision": 0.30,
-        "context": 0.20, "env": 0.10,
-    }
+    DEFAULT_WEIGHTS = DEFAULT_WEIGHTS
 
-    def __init__(self, weights=None):
-        self.weights = weights or dict(self.DEFAULT_WEIGHTS)
+    def __init__(self, weights=None, agreement_boost=None,
+                 escalate_threshold=0.15, critical_override=None,
+                 env_override=None, escalate_confidence=0.80):
+        self.weights = dict(weights or self.DEFAULT_WEIGHTS)
+        boost = agreement_boost or DEFAULT_AGREEMENT_BOOST
+        self.two_source_boost = float(boost.get("two_sources", 0.15))
+        self.three_source_boost = float(boost.get("three_sources", 0.25))
+        self.escalate_threshold = float(escalate_threshold)
+        self.escalate_confidence = float(escalate_confidence)
+        self.critical_cfg = (
+            critical_override
+            if critical_override is not None
+            else dict(DEFAULT_CRITICAL_OVERRIDE)
+        )
+        self.env_cfg = (
+            env_override
+            if env_override is not None
+            else dict(DEFAULT_ENV_OVERRIDE)
+        )
 
     def fuse(self, signals):
         cause_scores = {}
@@ -164,7 +325,10 @@ class MultimodalFuser:
         vision_sig = signal_details.get("posture", {})
         vision_raw = vision_sig.get("raw", {})
         is_critical = vision_raw.get("critical", False)
-        audio_sig = signal_details.get("cry_classification", {})
+        audio_sig = next(
+            (d for d in signal_details.values() if d.get("source") == "audio"),
+            {},
+        )
         context_sig = signal_details.get("context", {})
         env_sig = signal_details.get("env", {})
 
@@ -187,9 +351,12 @@ class MultimodalFuser:
             if sig.value == best_cause:
                 agreeing_sources.add(sig.source)
         if len(agreeing_sources) >= 2:
-            confidence = min(confidence + 0.15, 0.95)
+            confidence = min(confidence + self.two_source_boost, 0.95)
         if len(agreeing_sources) >= 3:
-            confidence = min(confidence + 0.10, 0.98)
+            confidence = min(
+                confidence + max(self.three_source_boost - self.two_source_boost, 0),
+                0.98,
+            )
 
         # v3: Critical posture override — enhanced logic
         # Override when:
@@ -203,19 +370,28 @@ class MultimodalFuser:
         audio_conf = audio_sig.get("confidence", 0)
         context_cause = context_sig.get("value", "")
 
-        if is_critical and vision_cause != audio_cause:
+        critical_conditions = set(self.critical_cfg.get("conditions", []))
+        min_vision_conf = float(self.critical_cfg.get("min_vision_confidence", 0.0))
+        very_strong = float(self.critical_cfg.get("very_strong_confidence", 0.90))
+        if (self.critical_cfg.get("enabled", True)
+                and is_critical
+                and vision_cause != audio_cause
+                and vision_conf >= min_vision_conf):
             # Condition 1: vision more confident than audio
-            if vision_conf > audio_conf:
+            if ("vision_confidence_greater_than_audio" in critical_conditions
+                    and vision_conf > audio_conf):
                 best_cause = vision_cause
                 confidence = min(vision_conf + 0.05, 0.95)
                 critical_override = True
             # Condition 2: context doesn't support audio
-            elif context_cause != audio_cause and context_cause != "neutral":
+            elif ("context_disagrees_with_audio" in critical_conditions
+                    and context_cause not in (audio_cause, "neutral", "")):
                 best_cause = vision_cause
                 confidence = min(vision_conf, 0.85)
                 critical_override = True
             # Condition 3: context is neutral but vision is very strong (>=0.90)
-            elif vision_conf >= 0.90:
+            elif ("vision_confidence_very_strong" in critical_conditions
+                    and vision_conf >= max(very_strong, min_vision_conf)):
                 best_cause = vision_cause
                 confidence = min(vision_conf - 0.05, 0.85)
                 critical_override = True
@@ -223,19 +399,27 @@ class MultimodalFuser:
         # v3: Environment override for temperature
         env_cause = env_sig.get("value", "")
         env_conf = env_sig.get("confidence", 0)
-        if env_cause == "temperature" and env_conf >= 0.65:
+        env_causes = set(self.env_cfg.get("causes", []))
+        min_env_conf = float(self.env_cfg.get("min_env_confidence", 0.65))
+        if (self.env_cfg.get("enabled", True)
+                and env_cause in env_causes
+                and env_conf >= min_env_conf):
             # Check if any posture supports temperature
-            vision_supports_temp = any(
-                "temperature" in str(v) for v in vision_raw.get("all_scores", {}).values()
-            ) or vision_cause == "temperature"
-            if vision_supports_temp or env_conf >= 0.70:
-                best_cause = "temperature"
+            vision_supports_env = (
+                vision_cause == env_cause
+                or env_cause in vision_raw.get("all_scores", {})
+            )
+            if vision_supports_env or env_conf >= min_env_conf + 0.05:
+                best_cause = env_cause
                 confidence = min(env_conf + 0.10, 0.85)
                 critical_override = True
 
         # Disagreement escalation
         margin = (best_score - second_score) / max(total, 1)
-        escalate = margin < 0.15 and confidence < 0.80
+        escalate = (
+            margin < self.escalate_threshold
+            and confidence < self.escalate_confidence
+        )
 
         if critical_override:
             agreeing_sources.add("vision")
