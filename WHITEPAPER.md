@@ -43,8 +43,17 @@ the whole session untrusted when 8 of the last 12 clips are OOD.
 **Layered judge (escalation chain):**
 
 1. **Fusion direct** (confidence ≥ 0.80): Multi-source agreement → immediate output
-2. **Tachyone local** (0.40-0.80): Local heuristic engine fuses with context, < 5ms
-3. **Jev cloud** (< 0.40): Cloud-based structured judgment with misjudgment correction
+2. **Tachyone local** (0.40-0.80): Local engine scores audio, fusion and context
+   directly; resolves high-confidence cases in 0–10 ms
+3. **Jev cloud** (< 0.40, or Tachyone < 0.70): TypeSafe System One v1
+   (`jev-1.14.0`), 300–600 ms, used only for genuinely ambiguous cases
+
+Both engines speak the same v1 wire protocol (`state` + `questions` → typed
+`answers`), so `/v1/systemone` can be pointed at either one. Tachyone now reads
+the structured audio/fusion/context fields instead of relying on keyword hits,
+which lets the local tier carry the common cases. Once Jev is invoked, its
+answer wins when valid; the engines' raw confidences are not compared because
+they are not calibrated against each other.
 
 **Self-learning loop:**
 
@@ -174,12 +183,16 @@ that the model never learned.
 
 | Scenario | Chain | Winner |
 |----------|-------|--------|
-| Low-conf hungry | audio(45%) → tachyone(61%) → jev(56%) | Tachyone ✓ |
-| Ambiguous equal split | audio(35%) → tachyone(12%) → jev(36%) | Jev ✓ |
-| Evening colic | audio(48%) → tachyone(12%) → jev(49%) | Jev ✓ |
-| Post-feed burp | audio(42%) → tachyone(62%) → jev(54%) | Tachyone ✓ |
+| Low-conf hungry | audio(45%) → tachyone(95%) | Tachyone ✓ |
+| Low-conf sleepy | audio(50%) → tachyone(95%) | Tachyone ✓ |
+| Ambiguous equal split | audio(35%) → tachyone(66%) → jev(35%) | Jev ✓ |
+| Post-feed burp | audio(42%) → tachyone(79%) | Tachyone ✓ |
+| Evening colic | audio(48%) → tachyone(87%) | Tachyone ✓ |
+| Uniform low confidence | audio(20%) → tachyone(57%) → jev(52%) | Jev (uncertain) |
 
-**Key result:** Jev added value in 3/6 uncertain scenarios where Tachyone confidence was too low.
+**Key result:** the local tier resolved 4/6 cases in ≤ 10 ms; the two
+genuinely ambiguous cases escalated to Jev (`jev-1.14.0`) at ~280–360 ms.
+Accuracy on the 5 evaluable scenarios was 5/5.
 
 ### Self-Learning (7-day simulation)
 
@@ -232,8 +245,8 @@ This is deliberately local-first. No family data has been collected yet.
 |-----------|-----------|-------|
 | Audio classification | scikit-learn SVM + librosa | 95 MFCC + spectral features |
 | Posture detection | MediaPipe BlazePose | 33 body landmarks → 13 postures |
-| Local judge | Tachyone (heuristic engine) | < 5ms, edge-deployable |
-| Cloud judge | Jev (TypeSafe) → Clef (open-source) | Structured judgment + confidence |
+| Local judge | Tachyone (heuristic engine) | 0–10 ms, edge-deployable, v1 protocol |
+| Cloud judge | Jev / TypeSafe System One v1 | `jev-1.14.0`, 300–600 ms via Magpie |
 | Self-learning | Bandit algorithm + SQLite | Signal weight adjustment |
 | API server | FastAPI + uvicorn | REST + WebSocket |
 | Dashboard | HTML/CSS/JS | Real-time results + feedback |
@@ -268,7 +281,11 @@ This is deliberately local-first. No family data has been collected yet.
 - **Training data imbalance:** hungry is still 73% of segments. Augmentation
   raised balanced accuracy from 46.0% to 52.3%, but startle/temperature have
   only 12 source segments each; augmentation cannot invent missing diversity.
-- **Jev region block:** TypeSafe API returns 451 in some regions. Mock Jev used for validation. Clef (open-source Apache 2.0) as production replacement.
+- **Jev edge-dependent 451:** the v1 API is live and was verified against
+  `jev-1.14.0`, but some Cloudflare edges return 451 even for a valid key.
+  The client retries once per route and falls back to a clearly-labelled mock
+  (`jev-mock-v0.1`) for 45 s, so cloud availability is not guaranteed. Clef
+  (Apache 2.0) remains the fully offline option.
 - **Vision prototype:** MediaPipe BlazePose not yet tested on real baby footage. Posture-to-cause mapping is rule-based, not learned.
 - **No real-world deployment data:** All validation is on public datasets. The
   pilot kit is ready, but no family has been enrolled yet. Real home noise,
@@ -287,8 +304,8 @@ This is deliberately local-first. No family data has been collected yet.
    minority classes; balanced accuracy +6.3 pp.
 2. 🟡 **Real-world validation:** pilot kit implemented and tested with 5
    simulated families; waiting for 3–5 real families.
-3. ⏳ **Clef deployment:** replace mock Jev with open-source Clef for fully
-   offline operation.
+3. ⏳ **Clef deployment:** optional offline judge for installations that must
+   not depend on TypeSafe availability.
 4. ⏳ **Model export:** SVM → ONNX/TFLite for optimized edge inference.
 5. ⏳ **Multi-baby tracking:** ByteTrack + ReID for multi-child scenarios.
 6. ⏳ **Long-term pattern discovery:** weekly/monthly anomaly detection.

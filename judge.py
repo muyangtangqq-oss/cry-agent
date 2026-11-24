@@ -31,6 +31,7 @@ class Judgment:
     escalated: bool
     alternatives: list[dict]
     state: dict
+    judge_model: str = ""
 
 
 class LayeredJudge:
@@ -69,10 +70,6 @@ class LayeredJudge:
         t_conf = t_result.get("confidence", 0.0)
         t_answer = t_result.get("answer")
 
-        # Agreement boost
-        if t_answer == audio_cause and audio_conf > 0:
-            t_conf = min(t_conf + 0.15, 0.95)
-
         # Decision point
         if t_conf >= self.cfg.tachyone_high:
             return Judgment(
@@ -82,6 +79,7 @@ class LayeredJudge:
                 latency_ms=t_result.get("latency_ms", 0),
                 escalated=False, alternatives=t_result.get("alternatives", []),
                 state={"signals": signals, "context": ctx},
+                judge_model=t_result.get("model", ""),
             )
 
         # Tier 2: Jev (either Tachyone uncertain or audio very low)
@@ -94,18 +92,25 @@ class LayeredJudge:
         jev_conf = j_result.get("confidence", 0.0)
         j_answer = j_result.get("answer")
 
-        # Pick the best among all three
-        candidates = [
-            ("audio", audio_cause, audio_conf),
-            ("tachyone", t_answer, t_conf),
-            ("jev", j_answer, jev_conf),
-        ]
-        best = max(candidates, key=lambda x: x[2] if x[1] else 0)
+        # Tiered arbitration: Jev is the top tier and is far better
+        # calibrated than the heuristic engines, so a confident Jev answer
+        # wins even when Tachyone reports a larger raw number.
+        if j_answer and jev_conf > 0:
+            final_cause, final_conf, model = j_answer, jev_conf, "jev"
+            judge_model = j_result.get("model", "")
+            alternatives = j_result.get("alternatives", [])
+        elif t_answer and t_conf > 0:
+            final_cause, final_conf, model = t_answer, t_conf, "tachyone"
+            judge_model = t_result.get("model", "")
+            alternatives = t_result.get("alternatives", [])
+        else:
+            final_cause, final_conf, model = audio_cause, audio_conf, "audio"
+            alternatives = []
 
         return Judgment(
-            cause=best[1] or "unknown",
-            confidence=round(best[2], 3),
-            model=best[0],
+            cause=final_cause or "unknown",
+            confidence=round(final_conf, 3),
+            model=model,
             audio_confidence=round(audio_conf, 3),
             tachyone_confidence=round(t_conf, 3),
             jev_confidence=round(jev_conf, 3),
@@ -113,8 +118,9 @@ class LayeredJudge:
                 t_result.get("latency_ms", 0) + j_result.get("latency_ms", 0), 2
             ),
             escalated=True,
-            alternatives=j_result.get("alternatives", []),
+            alternatives=alternatives,
             state={"signals": signals, "context": ctx},
+            judge_model=judge_model,
         )
 
     def _build_question(self, audio_cause, audio_conf, signals, ctx):

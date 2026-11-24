@@ -142,6 +142,7 @@ function showResult(data) {
   html += `<div class="status-row"><span class="status-label">Audio</span><span class="status-value">${data.audio_cause} (${(data.audio_confidence*100).toFixed(0)}%)</span></div>`;
   html += `<div class="status-row"><span class="status-label">Fused</span><span class="status-value">${data.fused_cause} (${(data.fused_confidence*100).toFixed(0)}%)</span></div>`;
   html += `<div class="status-row"><span class="status-label">Model</span><span class="status-value">${data.model}</span></div>`;
+  html += `<div class="status-row"><span class="status-label">Judge</span><span class="status-value">${data.judge_model || 'local fusion'}</span></div>`;
   html += `<div class="status-row"><span class="status-label">OOD score</span><span class="status-value">${(data.audio_ood_score ?? 0).toFixed(1)}</span></div>`;
   html += `<div class="status-row"><span class="status-label">Latency</span><span class="status-value">${data.latency_ms.toFixed(0)}ms</span></div>`;
   html += `<div class="status-row"><span class="status-label">Scores</span><span class="status-value">${JSON.stringify(data.all_scores)}</span></div>`;

@@ -25,6 +25,35 @@ USB → Noise level                                   ┘
                                           + self-learning feedback
 ```
 
+### Judgment engines
+
+Tachyone and Jev speak the same TypeSafe System One **v1** wire protocol
+(`state` + `questions` → typed `answers`), so they are interchangeable:
+
+| Tier | Engine | Measured latency | Role |
+|------|--------|------------------|------|
+| 1 | Fusion | ~0 ms | multi-source agreement → direct output |
+| 2 | Tachyone (local) | 0–10 ms | structured audio/fusion/context scoring |
+| 3 | Jev `jev-1.14.0` (cloud) | 300–600 ms | genuinely ambiguous cases |
+
+Escalation is tiered: Tachyone answers directly at ≥ 0.70, otherwise Jev is
+asked and its answer wins when it comes back valid. Raw confidences are not
+compared across engines — they are not calibrated against each other.
+
+```bash
+python jev_client.py                    # smoke test: prints model + route
+CRY_AGENT_TS_BASE_URL=https://api.typesafe.ai/v1   # skip the Magpie proxy
+CRY_AGENT_TS_BASE_URL="https://a/v1,https://b/v1"  # comma-separated failover
+CRY_AGENT_TS_MODEL=jev-latest           # alias; jev-preview is also available
+CRY_AGENT_TS_MOCK=1                     # force the offline mock for tests
+```
+
+TypeSafe returns HTTP `451` from some Cloudflare edges even for a valid key.
+The client retries once per route, then uses the clearly-labelled mock
+(`model: jev-mock-v0.1`) for 45 s before trying the real API again. The
+engine that actually answered is surfaced as `judge_model` in the API and
+dashboard, so a mock answer is never mistaken for a real one.
+
 ## Quick Start
 
 ### On dev machine (no hardware needed)
@@ -85,8 +114,10 @@ python live_camera.py --replay-audio <wav> --postures rooting
 | `vision_detector.py` | Annotation-based fallback (no camera) |
 | `pipeline.py` | End-to-end: fusion → layered judge |
 | `judge.py` | Layered judge: audio → Tachyone → Jev |
-| `tachyone_server.py` | Local judgment server |
-| `jev_client.py` | Jev cloud client (with mock fallback) |
+| `tachyone_server.py` | Local judgment server (v1 + legacy request shapes) |
+| `tachyone_client.py` | Local client speaking System One v1 |
+| `jev_client.py` | Jev cloud client: Magpie → direct, 451 cooldown, labelled mock |
+| `typesafe_protocol.py` | Shared v1 request/response helpers and choice rubrics |
 | `baby_profile.py` | Personal profile + Bandit self-learning |
 | `live_camera.py` | Real-time camera + mic demo |
 | `live_replay.py` | File-based streaming simulation |

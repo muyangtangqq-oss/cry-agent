@@ -42,6 +42,7 @@ class PipelineResult:
     session_ood: bool = False
     audio_ood_score: float = 0.0
     trusted: bool = True
+    judge_model: str = ""
 
 
 class CryAgentPipeline:
@@ -190,6 +191,7 @@ class CryAgentPipeline:
         # High confidence → direct output
         # Escalate flag or medium confidence → Tachyone
         # Low confidence → Jev
+        judge_model = ""
         if audio_ood or session_ood:
             escalate = False
             non_audio_strong = [
@@ -240,6 +242,7 @@ class CryAgentPipeline:
                 final_cause = t_answer
                 final_conf = t_conf
                 model = "tachyone"
+                judge_model = t_result.get("model", "")
             else:
                 # Jev
                 j_result = self.jev.judge(question, causes, {
@@ -250,16 +253,18 @@ class CryAgentPipeline:
                 j_conf = j_result.get("confidence", 0.0)
                 j_answer = j_result.get("answer")
 
-                # Pick best among fusion, tachyone, jev
-                candidates = [
-                    ("fusion", fused_cause, fused_conf),
-                    ("tachyone", t_answer, t_conf),
-                    ("jev", j_answer, j_conf),
-                ]
-                best = max(candidates, key=lambda x: x[2] if x[1] else 0)
-                final_cause = best[1] or fused_cause
-                final_conf = best[2]
-                model = best[0]
+                # Tiered arbitration: the highest tier that produced a
+                # confident answer wins. The engines are not calibrated
+                # against each other, so taking a raw max() would let the
+                # heuristic Tachyone outvote a calibrated Jev.
+                if j_answer and j_conf > 0:
+                    final_cause, final_conf, model = j_answer, j_conf, "jev"
+                    judge_model = j_result.get("model", "")
+                elif t_answer and t_conf > 0:
+                    final_cause, final_conf, model = t_answer, t_conf, "tachyone"
+                    judge_model = t_result.get("model", "")
+                else:
+                    final_cause, final_conf, model = fused_cause, fused_conf, "fusion"
 
         latency = (time.perf_counter() - t0) * 1000
 
@@ -283,4 +288,5 @@ class CryAgentPipeline:
             session_ood=session_ood,
             audio_ood_score=round(audio_ood_score, 3),
             trusted=not (audio_ood or session_ood),
+            judge_model=judge_model,
         )

@@ -101,6 +101,7 @@ async def classify_audio(
         "cause": result.cause,
         "confidence": result.confidence,
         "model": result.model,
+        "judge_model": result.judge_model,
         "audio_cause": result.audio_cause,
         "audio_confidence": result.audio_confidence,
         "fused_cause": result.fused_cause,
@@ -195,6 +196,7 @@ async def websocket_live(ws: WebSocket):
                         "cause": result.cause,
                         "confidence": result.confidence,
                         "model": result.model,
+                        "judge_model": result.judge_model,
                         "latency_ms": result.latency_ms,
                     })
     except Exception:
