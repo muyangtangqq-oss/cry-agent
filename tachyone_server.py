@@ -196,7 +196,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(400, "questions must not be empty")
                 return
             qid, question = next(iter(questions.items()))
-            choices = list((question.get("criteria") or {}).keys())
+            criteria = question.get("criteria") or {}
+            if not isinstance(criteria, dict):
+                self.send_error(400, "only choice questions are supported")
+                return
+            choices = list(criteria.keys())
             if not choices:
                 self.send_error(400, "criteria must not be empty")
                 return
