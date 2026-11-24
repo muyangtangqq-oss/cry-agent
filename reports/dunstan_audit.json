@@ -1,0 +1,635 @@
+{
+  "metadata": {
+    "clips": 1551,
+    "tiers": {
+      "Dunstan-Core": 337,
+      "InfantCry-1214": 1214
+    },
+    "classes": {
+      "eairh": 170,
+      "eh": 280,
+      "heh": 168,
+      "neh": 217,
+      "owh": 716
+    },
+    "by_tier_class": {
+      "Dunstan-Core": {
+        "eairh": 60,
+        "eh": 72,
+        "heh": 57,
+        "neh": 72,
+        "owh": 76
+      },
+      "InfantCry-1214": {
+        "eairh": 110,
+        "eh": 208,
+        "heh": 111,
+        "neh": 145,
+        "owh": 640
+      }
+    },
+    "sources": {
+      "dunstan_video": 337,
+      "cryceleb_likely": 231,
+      "online_or_volunteer": 237,
+      "unknown": 746
+    },
+    "source_confirmed": {
+      "TRUE": 337,
+      "FALSE": 1214
+    },
+    "duration_minutes": 54.4,
+    "label_notes": [
+      {
+        "file": "1214 COLLCTED DATA/eh/000543_M_heh.wav",
+        "class": "eh",
+        "note": "filename_label=heh; folder_label=eh; folder_is_authoritative"
+      }
+    ],
+    "missing_paths": 1214,
+    "missing_path_examples": [
+      "1214 COLLCTED DATA/eairh/1028_M_eairh.wav",
+      "1214 COLLCTED DATA/eairh/1084_M_eairh.wav",
+      "1214 COLLCTED DATA/eairh/1092_M_eairh.wav"
+    ]
+  },
+  "definitions": {
+    "neh": [
+      "hunger",
+      "sucking reflex against the soft palate"
+    ],
+    "owh": [
+      "sleepiness",
+      "yawn-like rounding"
+    ],
+    "heh": [
+      "physical discomfort",
+      "skin-related stimulus"
+    ],
+    "eairh": [
+      "lower-wind / abdominal discomfort",
+      "straining, lower gas"
+    ],
+    "eh": [
+      "upper-wind / need to burp",
+      "burp reflex"
+    ]
+  },
+  "mapping_A": {
+    "neh": "hungry",
+    "owh": "sleepy",
+    "heh": "discomfort",
+    "eairh": "pain",
+    "eh": "burp"
+  },
+  "mapping_B": {
+    "neh": "hungry",
+    "owh": "sleepy",
+    "heh": "discomfort",
+    "eairh": "discomfort",
+    "eh": "burp"
+  },
+  "five_class": {
+    "cv_Dunstan-Core": {
+      "n": 482,
+      "accuracy": 0.7863070539419087,
+      "balanced_accuracy": 0.7818051659137876,
+      "recall": [
+        0.7757009345794392,
+        0.8375,
+        0.696969696969697,
+        0.801980198019802,
+        0.796875
+      ],
+      "confusion": [
+        [
+          83,
+          4,
+          0,
+          8,
+          12
+        ],
+        [
+          2,
+          67,
+          2,
+          5,
+          4
+        ],
+        [
+          5,
+          5,
+          46,
+          7,
+          3
+        ],
+        [
+          5,
+          3,
+          5,
+          81,
+          7
+        ],
+        [
+          10,
+          4,
+          2,
+          10,
+          102
+        ]
+      ],
+      "majority": 0.26556016597510373
+    },
+    "cv_InfantCry-1214": {
+      "n": 1559,
+      "accuracy": 0.868505452212957,
+      "balanced_accuracy": 0.8003284107681594,
+      "recall": [
+        0.6417910447761194,
+        0.8532934131736527,
+        0.6818181818181818,
+        0.8766519823788547,
+        0.9480874316939891
+      ],
+      "confusion": [
+        [
+          86,
+          7,
+          3,
+          10,
+          28
+        ],
+        [
+          5,
+          285,
+          4,
+          7,
+          33
+        ],
+        [
+          11,
+          9,
+          90,
+          6,
+          16
+        ],
+        [
+          6,
+          1,
+          6,
+          199,
+          15
+        ],
+        [
+          9,
+          10,
+          5,
+          14,
+          694
+        ]
+      ],
+      "majority": 0.46953175112251444
+    },
+    "Dunstan-Core->InfantCry-1214": {
+      "n": 1559,
+      "accuracy": 0.5651058370750481,
+      "balanced_accuracy": 0.6749080185711407,
+      "recall": [
+        0.8208955223880597,
+        0.7035928143712575,
+        0.6666666666666666,
+        0.8281938325991189,
+        0.3551912568306011
+      ],
+      "confusion": [
+        [
+          110,
+          8,
+          3,
+          9,
+          4
+        ],
+        [
+          39,
+          235,
+          3,
+          29,
+          28
+        ],
+        [
+          18,
+          6,
+          88,
+          20,
+          0
+        ],
+        [
+          6,
+          13,
+          14,
+          188,
+          6
+        ],
+        [
+          153,
+          58,
+          26,
+          235,
+          260
+        ]
+      ],
+      "majority": 0.46953175112251444
+    },
+    "InfantCry-1214->Dunstan-Core": {
+      "n": 482,
+      "accuracy": 0.7676348547717843,
+      "balanced_accuracy": 0.7681645541890637,
+      "recall": [
+        0.6915887850467289,
+        0.7625,
+        0.7878787878787878,
+        0.801980198019802,
+        0.796875
+      ],
+      "confusion": [
+        [
+          74,
+          3,
+          7,
+          4,
+          19
+        ],
+        [
+          1,
+          61,
+          7,
+          5,
+          6
+        ],
+        [
+          2,
+          1,
+          52,
+          8,
+          3
+        ],
+        [
+          4,
+          4,
+          5,
+          81,
+          7
+        ],
+        [
+          19,
+          1,
+          2,
+          4,
+          102
+        ]
+      ],
+      "majority": 0.26556016597510373
+    }
+  },
+  "cross_corpus": {
+    "A_eairh_pain/Dunstan-Core": {
+      "n": 482,
+      "accuracy": 0.2033195020746888,
+      "balanced_accuracy": 0.19269527273989082,
+      "recall": [
+        0.0,
+        0.0,
+        0.9306930693069307,
+        0.009345794392523364,
+        0.0234375
+      ],
+      "confusion": [
+        [
+          0,
+          0,
+          77,
+          0,
+          3
+        ],
+        [
+          0,
+          0,
+          66,
+          0,
+          0
+        ],
+        [
+          0,
+          2,
+          94,
+          3,
+          2
+        ],
+        [
+          0,
+          4,
+          101,
+          1,
+          1
+        ],
+        [
+          0,
+          4,
+          121,
+          0,
+          3
+        ]
+      ],
+      "majority": 0.2095435684647303
+    },
+    "A_eairh_pain/InfantCry-1214": {
+      "n": 1559,
+      "accuracy": 0.15202052597819116,
+      "balanced_accuracy": 0.20397781472829787,
+      "recall": [
+        0.0,
+        0.007575757575757576,
+        0.9911894273127754,
+        0.007462686567164179,
+        0.01366120218579235
+      ],
+      "confusion": [
+        [
+          0,
+          4,
+          319,
+          0,
+          11
+        ],
+        [
+          0,
+          1,
+          125,
+          1,
+          5
+        ],
+        [
+          0,
+          1,
+          225,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          131,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          720,
+          0,
+          10
+        ]
+      ],
+      "majority": 0.14560615779345734
+    },
+    "A_eairh_pain_plus_tier2/Dunstan-Core": {
+      "n": 482,
+      "accuracy": 0.7053941908713693,
+      "balanced_accuracy": 0.7027492833979659,
+      "recall": [
+        0.75,
+        0.6818181818181818,
+        0.7227722772277227,
+        0.5700934579439252,
+        0.7890625
+      ],
+      "confusion": [
+        [
+          60,
+          5,
+          7,
+          2,
+          6
+        ],
+        [
+          3,
+          45,
+          15,
+          1,
+          2
+        ],
+        [
+          0,
+          8,
+          73,
+          6,
+          14
+        ],
+        [
+          2,
+          5,
+          18,
+          61,
+          21
+        ],
+        [
+          1,
+          3,
+          17,
+          6,
+          101
+        ]
+      ],
+      "majority": 0.2095435684647303
+    },
+    "B_eairh_discomfort/Dunstan-Core": {
+      "n": 482,
+      "accuracy": 0.2095435684647303,
+      "balanced_accuracy": 0.24431298914754193,
+      "recall": [
+        0.0,
+        0.023121387283236993,
+        0.9306930693069307,
+        0.0,
+        0.0234375
+      ],
+      "confusion": [
+        [
+          0,
+          0,
+          77,
+          0,
+          3
+        ],
+        [
+          0,
+          4,
+          167,
+          1,
+          1
+        ],
+        [
+          0,
+          2,
+          94,
+          3,
+          2
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          4,
+          121,
+          0,
+          3
+        ]
+      ],
+      "majority": 0.2095435684647303
+    },
+    "B_eairh_discomfort/InfantCry-1214": {
+      "n": 1559,
+      "accuracy": 0.15137908915971776,
+      "balanced_accuracy": 0.25215250699870206,
+      "recall": [
+        0.0,
+        0.0037593984962406013,
+        0.9911894273127754,
+        0.0,
+        0.01366120218579235
+      ],
+      "confusion": [
+        [
+          0,
+          4,
+          319,
+          0,
+          11
+        ],
+        [
+          0,
+          1,
+          256,
+          2,
+          7
+        ],
+        [
+          0,
+          1,
+          225,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          2,
+          720,
+          0,
+          10
+        ]
+      ],
+      "majority": 0.14560615779345734
+    },
+    "B_eairh_discomfort_plus_tier2/Dunstan-Core": {
+      "n": 482,
+      "accuracy": 0.7157676348547718,
+      "balanced_accuracy": 0.7186803613074458,
+      "recall": [
+        0.75,
+        0.6936416184971098,
+        0.6732673267326733,
+        0.0,
+        0.7578125
+      ],
+      "confusion": [
+        [
+          60,
+          8,
+          6,
+          0,
+          6
+        ],
+        [
+          5,
+          120,
+          26,
+          0,
+          22
+        ],
+        [
+          3,
+          16,
+          68,
+          0,
+          14
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          11,
+          19,
+          0,
+          97
+        ]
+      ],
+      "majority": 0.2095435684647303
+    },
+    "eairh_predictions": {
+      "hungry": 232,
+      "sleepy": 3,
+      "discomfort": 4,
+      "pain": 2
+    }
+  },
+  "acoustic_profile": {
+    "eairh": {
+      "segments": 241,
+      "centroid_mean": 2770.8,
+      "rms_mean": 0.1418,
+      "f0_mean": 389.5
+    },
+    "eh": {
+      "segments": 414,
+      "centroid_mean": 1783.5,
+      "rms_mean": 0.1009,
+      "f0_mean": 336.4
+    },
+    "heh": {
+      "segments": 198,
+      "centroid_mean": 2062.6,
+      "rms_mean": 0.1196,
+      "f0_mean": 400.5
+    },
+    "neh": {
+      "segments": 328,
+      "centroid_mean": 2327.0,
+      "rms_mean": 0.1684,
+      "f0_mean": 416.2
+    },
+    "owh": {
+      "segments": 860,
+      "centroid_mean": 2640.0,
+      "rms_mean": 0.1262,
+      "f0_mean": 357.7
+    }
+  },
+  "elapsed_seconds": 27.5
+}
