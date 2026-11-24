@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  cry-agent:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - cry-models:/root/.config/cry-agent/models
+      - cry-data:/root/.config/cry-agent/data
+      - cry-profile:/root/.config/cry-agent
+    environment:
+      - TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  cry-models:
+  cry-data:
+  cry-profile:

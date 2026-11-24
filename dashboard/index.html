@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cry-Agent Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, sans-serif; background: #0f1117; color: #e0e0e0; padding: 20px; }
+.grid { display: grid; gap: 16px; max-width: 1200px; margin: 0 auto; }
+.card { background: #1a1d28; border-radius: 12px; padding: 20px; }
+.card h2 { font-size: 14px; color: #888; text-transform: uppercase; margin-bottom: 12px; }
+.big-result { font-size: 48px; font-weight: 700; text-align: center; padding: 20px; }
+.confidence { font-size: 20px; text-align: center; color: #aaa; }
+.status-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a2d38; }
+.status-row:last-child { border: none; }
+.status-label { color: #888; }
+.status-value { font-weight: 600; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.badge-fusion { background: #1a3a5a; color: #6ab0f3; }
+.badge-tachyone { background: #3a1a5a; color: #c46af3; }
+.badge-jev { background: #5a3a1a; color: #f3c46a; }
+.badge-override { background: #5a1a1a; color: #f36a6a; }
+.col-2 { grid-template-columns: 1fr 1fr; }
+.col-3 { grid-template-columns: 1fr 1fr 1fr; }
+.upload-area { border: 2px dashed #3a3d48; border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; }
+.upload-area:hover { border-color: #6ab0f3; }
+.btn { background: #2a5a8a; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.btn:hover { background: #3a6a9a; }
+input[type=number], select { background: #2a2d38; border: 1px solid #3a3d48; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; }
+.bar-chart { display: flex; flex-direction: column; gap: 6px; }
+.bar-row { display: flex; align-items: center; gap: 8px; }
+.bar-label { width: 80px; font-size: 12px; }
+.bar-track { flex: 1; background: #2a2d38; border-radius: 4px; height: 20px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.history-item { padding: 8px; border-bottom: 1px solid #2a2d38; font-size: 13px; }
+.history-time { color: #666; }
+.history-cause { font-weight: 600; }
+.history-correct { color: #6af36a; }
+.history-wrong { color: #f36a6a; }
+</style>
+</head>
+<body>
+<div class="grid col-2" style="margin-bottom: 16px;">
+  <div class="card">
+    <h2>Latest Result</h2>
+    <div class="big-result" id="cause">—</div>
+    <div class="confidence" id="confidence"></div>
+    <div style="text-align:center; margin-top:8px;" id="badges"></div>
+  </div>
+  <div class="card">
+    <h2>Upload Audio</h2>
+    <div class="upload-area" id="dropzone">
+      <p>📁 Drop .wav file or click to upload</p>
+      <input type="file" id="fileInput" accept=".wav" style="display:none;">
+    </div>
+    <div style="margin-top:12px;">
+      <label>Postures: <input type="text" id="postures" placeholder="rooting,sucking_fingers" size="25"></label>
+    </div>
+    <div style="margin-top:8px;">
+      <label>Room temp: <input type="number" id="temp" placeholder="23" size="5">°C</label>
+      <label>Noise: <input type="number" id="noise" placeholder="40" size="5">dB</label>
+    </div>
+    <div style="margin-top:8px;">
+      <label>Feed gap: <input type="number" id="feedGap" placeholder="2.0" size="5" value="2.0">h</label>
+      <label>Sleep gap: <input type="number" id="sleepGap" placeholder="3.0" size="5" value="3.0">h</label>
+    </div>
+    <button class="btn" style="margin-top:12px; width:100%;" onclick="classify()">Analyze</button>
+  </div>
+</div>
+
+<div class="grid col-3" style="margin-bottom: 16px;">
+  <div class="card">
+    <h2>Signal Breakdown</h2>
+    <div id="signalBreakdown" class="status-row">
+      <span class="status-label">Upload audio to see</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Accuracy Stats</h2>
+    <div id="stats" class="status-row">
+      <span class="status-label">Loading...</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Signal Weights</h2>
+    <div class="bar-chart" id="weights"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Cry History</h2>
+  <div id="history"></div>
+</div>
+
+<script>
+const API = '';
+
+async function classify() {
+  const fileInput = document.getElementById('fileInput');
+  if (!fileInput.files[0]) { alert('Select a .wav file first'); return; }
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  formData.append('postures', document.getElementById('postures').value);
+  formData.append('face_state', '');
+  formData.append('room_temp', document.getElementById('temp').value || '');
+  formData.append('noise_db', document.getElementById('noise').value || '');
+  formData.append('feed_gap', document.getElementById('feedGap').value || 2.0);
+  formData.append('sleep_gap', document.getElementById('sleepGap').value || 3.0);
+  formData.append('age_days', 42);
+
+  document.getElementById('cause').textContent = '...';
+
+  try {
+    const resp = await fetch(API + '/api/classify', { method: 'POST', body: formData });
+    const data = await resp.json();
+    showResult(data);
+    loadStats();
+    loadHistory();
+  } catch(e) {
+    document.getElementById('cause').textContent = 'Error';
+    console.error(e);
+  }
+}
+
+function showResult(data) {
+  document.getElementById('cause').textContent = data.cause;
+  document.getElementById('confidence').textContent = (data.confidence * 100).toFixed(0) + '% confidence';
+
+  const badges = [];
+  badges.push(`<span class="badge badge-${data.model}">${data.model}</span>`);
+  if (data.critical_override) badges.push(`<span class="badge badge-override">OVERRIDE</span>`);
+  if (data.escalated) badges.push(`<span class="badge badge-override">ESCALATED</span>`);
+  document.getElementById('badges').innerHTML = badges.join(' ');
+
+  let html = '';
+  html += `<div class="status-row"><span class="status-label">Audio</span><span class="status-value">${data.audio_cause} (${(data.audio_confidence*100).toFixed(0)}%)</span></div>`;
+  html += `<div class="status-row"><span class="status-label">Fused</span><span class="status-value">${data.fused_cause} (${(data.fused_confidence*100).toFixed(0)}%)</span></div>`;
+  html += `<div class="status-row"><span class="status-label">Model</span><span class="status-value">${data.model}</span></div>`;
+  html += `<div class="status-row"><span class="status-label">Latency</span><span class="status-value">${data.latency_ms.toFixed(0)}ms</span></div>`;
+  html += `<div class="status-row"><span class="status-label">Scores</span><span class="status-value">${JSON.stringify(data.all_scores)}</span></div>`;
+  document.getElementById('signalBreakdown').innerHTML = html;
+
+  // Show feedback buttons
+  html += `<div style="margin-top:12px; text-align:center;">
+    <button class="btn" onclick="feedback(${data.event_index}, '${data.cause}')" style="background:#2a5a4a;">✓ Correct</button>
+    <span style="display:inline-block; width:8px;"></span>
+    <select id="correctCause" style="width:120px;">
+      <option value="">Wrong: select cause</option>
+      <option>hungry</option><option>sleepy</option><option>discomfort</option>
+      <option>pain</option><option>burp</option><option>lonely</option>
+      <option>startle</option><option>temperature</option>
+    </select>
+    <button class="btn" onclick="submitCorrection(${data.event_index})" style="background:#5a2a2a;">Submit</button>
+  </div>`;
+  document.getElementById('signalBreakdown').innerHTML = html;
+}
+
+async function feedback(idx, cause) {
+  await fetch(API + '/api/feedback', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ event_index: idx, actual_cause: cause })
+  });
+  alert('Feedback recorded: correct!');
+  loadStats();
+}
+
+async function submitCorrection(idx) {
+  const sel = document.getElementById('correctCause');
+  const cause = sel.value;
+  if (!cause) { alert('Select a cause'); return; }
+  await fetch(API + '/api/feedback', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ event_index: idx, actual_cause: cause })
+  });
+  alert('Correction recorded!');
+  loadStats();
+}
+
+async function loadStats() {
+  try {
+    const resp = await fetch(API + '/api/stats');
+    const data = await resp.json();
+    let html = '';
+    html += `<div class="status-row"><span class="status-label">Total events</span><span class="status-value">${data.total_events}</span></div>`;
+    html += `<div class="status-row"><span class="status-label">Feedback count</span><span class="status-value">${data.feedback_count}</span></div>`;
+    html += `<div class="status-row"><span class="status-label">Correct</span><span class="status-value">${data.correct_count}</span></div>`;
+    html += `<div class="status-row"><span class="status-label">Accuracy</span><span class="status-value">${(data.accuracy*100).toFixed(0)}%</span></div>`;
+    document.getElementById('stats').innerHTML = html;
+
+    // Weights
+    const colors = { cry_pattern:'#6ab0f3', posture:'#c46af3', context:'#f3c46a', time_pattern:'#6af3c46a' };
+    let whtml = '';
+    for (const [k, v] of Object.entries(data.signal_weights)) {
+      whtml += `<div class="bar-row">
+        <span class="bar-label">${k}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${v*100}%; background:${colors[k]||'#888'};"></div></div>
+      </div>`;
+    }
+    document.getElementById('weights').innerHTML = whtml;
+  } catch(e) { console.error(e); }
+}
+
+async function loadHistory() {
+  try {
+    const resp = await fetch(API + '/api/history?limit=10');
+    const data = await resp.json();
+    let html = '';
+    for (const e of data.events.reverse()) {
+      const time = new Date(e.timestamp * 1000).toLocaleTimeString();
+      const fb = e.feedback ? (e.feedback === e.cause ? ' ✓' : ' ✗') : '';
+      const cls = e.feedback ? (e.feedback === e.cause ? 'history-correct' : 'history-wrong') : '';
+      html += `<div class="history-item">
+        <span class="history-time">${time}</span> 
+        <span class="history-cause ${cls}">${e.cause}</span>
+        (${(e.confidence*100).toFixed(0)}%)${fb}
+      </div>`;
+    }
+    document.getElementById('history').innerHTML = html || '<p style="color:#666;">No history yet</p>';
+  } catch(e) { console.error(e); }
+}
+
+// Dropzone
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.style.borderColor = '#6ab0f3'; });
+dropzone.addEventListener('dragleave', () => { dropzone.style.borderColor = '#3a3d48'; });
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.style.borderColor = '#3a3d48';
+  if (e.dataTransfer.files[0]) {
+    fileInput.files = e.dataTransfer.files;
+  }
+});
+
+// Init
+loadStats();
+loadHistory();
+</script>
+</body>
+</html>
