@@ -124,6 +124,47 @@ python live_camera.py --camera 0 --mic-device 0 --temp 22 --interval 3
 python live_camera.py --replay-audio <wav> --postures rooting
 ```
 
+### On Mac mini (headless, launchd)
+
+`deploy_mac.sh` is the one-command install for an Apple Silicon Mac. It
+installs Homebrew packages and Python dependencies, clones or pulls the repo,
+copies trained models from another Mac, writes `~/.config/cry-agent/env`, and
+registers a launchd service that keeps Tachyone + the API running.
+
+```bash
+# Copy the script over first if the mini does not have the repo yet
+scp deploy_mac.sh mini:'~/deploy_mac.sh'
+ssh mini 'chmod +x ~/deploy_mac.sh && ~/deploy_mac.sh --models-from kl@macbook.local'
+
+# Optional: replay/retraining data (~685 MB)
+ssh mini '~/deploy_mac.sh --models-from kl@macbook.local \
+  --data-from kl@macbook.local:/Users/kl/cry-agent/data'
+```
+
+Models are deliberately outside git (`~/.config/cry-agent/models`), so a fresh
+mini needs `--models-from`, or `--allow-missing-models` if you plan to train
+there. The source Mac must have Remote Login enabled. The script backs up
+existing models and is safe to rerun: it pulls the branch, re-syncs models, and
+restarts the service.
+
+Common options: `--judge-provider deepseek`, `--port 8000`,
+`--no-live-deps`, `--no-launchd`, `--skip-deps`. Run
+`./deploy_mac.sh --help` for the full list.
+
+```bash
+# Health, logs, restart
+curl -fsS http://127.0.0.1:8000/ >/dev/null && echo API_OK
+tail -f ~/Library/Logs/cry-agent/api.log
+launchctl kickstart -k gui/$(id -u)/com.cryagent.api
+```
+
+Camera and microphone permissions must be granted once from a Terminal on the
+mini's desktop; launchd cannot show the macOS privacy prompt:
+
+```bash
+~/cry-agent/.venv/bin/python ~/cry-agent/live_camera.py --camera 0 --mic-device 0
+```
+
 ## Components
 
 | File | Purpose |
@@ -145,15 +186,19 @@ python live_camera.py --replay-audio <wav> --postures rooting
 | `vision_mediapipe.py` | MediaPipe BlazePose posture detector |
 | `vision_detector.py` | Annotation-based fallback (no camera) |
 | `pipeline.py` | End-to-end: fusion → layered judge |
-| `judge.py` | Layered judge: audio → Tachyone → Jev |
+| `judge.py` | Layered judge: audio → Tachyone → cloud judge |
+| `judge_factory.py` | Selects Jev or a mainland-accessible LLM judge |
+| `llm_judge.py` | OpenAI-compatible judge (DeepSeek/Qwen/GLM/Kimi/Ollama) |
 | `tachyone_server.py` | Local judgment server (v1 + legacy request shapes) |
 | `tachyone_client.py` | Local client speaking System One v1 |
 | `jev_client.py` | Jev cloud client: Magpie → direct, 451 cooldown, labelled mock |
+| `audit_dunstan.py` | Dunstan label-semantics and DBL tier audit |
 | `typesafe_protocol.py` | Shared v1 request/response helpers and choice rubrics |
 | `baby_profile.py` | Personal profile + Bandit self-learning |
 | `live_camera.py` | Real-time camera + mic demo |
 | `live_replay.py` | File-based streaming simulation |
 | `deploy_jetson.sh` | Jetson deployment script |
+| `deploy_mac.sh` | Mac mini install: deps, models, launchd service |
 
 ## Multi-Scenario (config-driven)
 
@@ -332,6 +377,14 @@ validation slices are small, and a family-specific bias can be learned. See
 | Temp sensor | DHT22 | ¥15 |
 | Noise sensor | USB decibel module | ¥40 |
 | Total | | ~¥3400 |
+
+### Mac mini alternative
+
+A used or existing Apple Silicon Mac mini needs no CUDA and is the fastest way
+to stand up a multi-week pilot indoors. It runs the same SVM classifier,
+Tachyone server, and dashboard; only the live camera path is slower than a
+Jetson. Use [`deploy_mac.sh`](#on-mac-mini-headless-launchd) to install it as
+a launchd service, and add a USB microphone plus any UVC webcam.
 
 ## Self-Learning
 
