@@ -271,12 +271,17 @@ against the corpus's own definitions:
 | `heh` | physical/skin discomfort | discomfort | direct |
 | `eairh` | **lower wind / abdominal discomfort** | pain | **too strong** |
 
-`eairh` is gas discomfort, not sharp pain. Re-mapping it to `discomfort`
-raises balanced accuracy on DBL from 19.3% to 24.4% (mapping B vs A), but the
-global model still predicts `eairh` as `hungry` 232/241 times, so the mapping
-is not the main bottleneck. The bigger caveat is semantic: these are five
-*reflex sounds*, not five verified causes. A perfect DBL classifier is still
-not a cause diagnosis.
+`eairh` is lower-wind/gas discomfort, not only sharp pain. We keep it mapped
+to `pain` because the `pain` rubric includes colic and DBL's `eairh` segments
+are 36% of all pain training data. Re-mapping to `discomfort` gains 5.1 pp
+balanced accuracy on DBL alone, but drops LOCO accuracy from 40.4% to 39.3%,
+DynamicSuperb pain recall from 33% to 0%, and group-CV pain recall from 41%
+to 28%. See [`reports/eairh_mapping.md`](reports/eairh_mapping.md).
+
+The global model still predicts `eairh` as `hungry` 232/241 times, so the
+mapping is not the main bottleneck. The bigger caveat is semantic: these are
+five *reflex sounds*, not five verified causes. A perfect DBL classifier is
+still not a cause diagnosis.
 
 Only the 337 `source_confirmed=TRUE` studio clips were used before. The other
 1,214 clips are unconfirmed and 746 have `source=unknown`; adding them raises

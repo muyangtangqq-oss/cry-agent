@@ -34,7 +34,7 @@ CAUSE_CRITERIA = {
     "hungry": "The baby is hungry or due for a feed; rooting, sucking motions, a long feed gap.",
     "sleepy": "The baby is tired; yawning, eye rubbing, low-energy whimpering, long wake window.",
     "discomfort": "Physical discomfort from a wet diaper, tight clothes, or an awkward position.",
-    "pain": "Sharp pain such as colic or reflux; sudden high-pitched, sustained crying.",
+    "pain": "Pain such as colic/lower-wind gas or reflux; sudden high-pitched crying, straining, legs pulled up.",
     "burp": "Trapped gas after a feed; fussing or brief crying shortly after eating.",
     "lonely": "The baby wants attention or closeness; crying that eases when picked up.",
     "startle": "A sudden fright from noise or movement; arms spread, abrupt scream.",

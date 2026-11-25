@@ -418,9 +418,12 @@ def main():
                     f"{row['rms_mean']} | {row['f0_mean']} |\n")
         f.write("\n## Conclusion\n\n")
         f.write(
-            "1. The mapping is mostly direct, but `eairh -> pain` is not "
-            "supported by the corpus's own definition; use `discomfort` or "
-            "add a `gas` class.\n"
+            "1. The mapping is mostly direct, but `eairh -> pain` is stronger "
+            "than the corpus's own definition (lower-wind / abdominal "
+            "discomfort). It is retained in production because DBL's `eairh` "
+            "segments are 36% of all pain training data and re-mapping to "
+            "`discomfort` costs pain recall; see "
+            "`reports/eairh_mapping.md` for the A/B benchmark.\n"
             "2. The corpus is five *reflex sounds*, not five verified causes. "
             "Even a perfect DBL classifier is not a cause diagnosis.\n"
             "3. Only Tier 1 was used before. Tier 2 adds 1,214 clips but is "

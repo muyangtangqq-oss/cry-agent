@@ -291,12 +291,14 @@ This is deliberately local-first. No family data has been collected yet.
   or OpenAI. These are general instruct models with JSON mode, not calibrated
   classifiers: their confidence is a self-report (`calibrated: false`) and must
   not be compared numerically with Tachyone or Jev confidences.
-- **Dunstan `eairh` is mis-mapped.** The corpus defines it as lower-wind /
-  abdominal discomfort, and we map it to `pain`. Re-mapping it to `discomfort`
-  improves DBL balanced accuracy from 19.3% to 24.4%, but `eairh` is still
-  predicted as `hungry` in 232/241 segments. More importantly, DBL provides
-  five reflex *sounds*, not five verified causes; the labels are not a
-  diagnosis. See `reports/dunstan_audit.md`.
+- **Dunstan `eairh` is stronger than the corpus definition.** The corpus says
+  lower-wind / abdominal discomfort, and we map it to `pain`. We keep that
+  mapping because the rubric includes colic and `eairh` is 36% of all pain
+  training segments. Re-mapping to `discomfort` gains 5.1 pp balanced accuracy
+  on DBL alone, but costs 1.1 pp LOCO accuracy and takes DynamicSuperb pain
+  recall from 33% to 0%. `eairh` is still predicted as `hungry` in 232/241
+  segments, and DBL provides five reflex *sounds*, not five verified causes.
+  See `reports/dunstan_audit.md` and `reports/eairh_mapping.md`.
 - **Only Dunstan Tier 1 is clean.** The 337 studio clips carry
   `source_confirmed=TRUE`. The other 1,214 clips are unconfirmed, 746 have
   `source=unknown`, and one file has a folder/filename label conflict. Adding

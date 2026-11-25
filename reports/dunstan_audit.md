@@ -66,7 +66,7 @@ Within-corpus separation is the ceiling for any mapping: if the sounds are not s
 
 ## Conclusion
 
-1. The mapping is mostly direct, but `eairh -> pain` is not supported by the corpus's own definition; use `discomfort` or add a `gas` class.
+1. The mapping is mostly direct, but `eairh -> pain` is stronger than the corpus's own definition (lower-wind / abdominal discomfort). It is retained in production because DBL's `eairh` segments are 36% of all pain training data and re-mapping to `discomfort` costs pain recall; see `reports/eairh_mapping.md` for the A/B benchmark.
 2. The corpus is five *reflex sounds*, not five verified causes. Even a perfect DBL classifier is not a cause diagnosis.
 3. Only Tier 1 was used before. Tier 2 adds 1,214 clips but is unconfirmed and heterogeneous; it is useful for domain-shift stress tests, not as clean ground truth.
 4. Any cross-corpus number should be reported with the mapping and tier, because both change the label and the domain.
