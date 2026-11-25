@@ -176,9 +176,11 @@ mini's desktop; launchd cannot show the macOS privacy prompt:
 | `scenario_engine.py` | Loads a YAML scenario and builds the pipeline |
 | `rules.py` | Numeric / time-window / boolean rule evaluator |
 | `configs/*.yaml` | Baby, elderly-care, and pet-behavior scenarios |
-| `augment.py` | Pitch / stretch / gain / noise augmentation |
+| `augment.py` | Pitch / stretch / gain / noise plus channel (EQ/reverb) augmentation |
+| `feature_norm.py` | Recording- and owner-level CMVN helpers |
 | `train_augmented.py` | Minority-class training + baseline comparison |
 | `test_loco.py` | Group CV + leave-one-corpus-out evaluation |
+| `test_loco_robust.py` | LOCO comparison of loudness, CMVN, and channel augmentation |
 | `ood.py` | Per-class Mahalanobis OOD detector |
 | `train_ood.py` | Fit + calibrate OOD gate; LOCO detection report |
 | `adapt.py` | CORAL, prior correction, nearest-centroid, family calibrator |
@@ -281,6 +283,7 @@ with 5 simulated families.
 | DBL regression | 97.0% (held-in corpus, not a clean holdout) |
 | Group 5-fold by recording | 76.6% acc / 41.9% balanced (majority 74.5%) |
 | Leave-one-corpus-out mean | **40.4% acc / 26.0% balanced** (majority 74.5%) |
+| LOCO + channel aug + CMVN | **52.7% acc / 36.3% balanced** |
 | Audio inference latency | ~190 ms warm; ~1.3 s first call |
 | Full pipeline latency | ~200–290 ms warm; ~1.1 s first segment |
 
@@ -289,12 +292,45 @@ different folds, so these numbers are an upper bound. See
 [`reports/augmentation_cv.md`](reports/augmentation_cv.md) for the full
 augmentation comparison and caveats.
 
-**Important: the current model does not generalize across corpora.** In
+**Important: the production model does not generalize across corpora.** In
 leave-one-corpus-out evaluation it is worse than the majority baseline on all
 three held-out corpora. In-corpus CV and the 97% DBL number are not evidence
-of cross-home accuracy. The model should be treated as a within-corpus
-prototype until domain adaptation and family pilot data exist. See
+of cross-home accuracy. Channel-robust training improves LOCO but costs
+in-domain accuracy, so the model is still a within-corpus prototype until
+domain adaptation and family pilot data exist. See
 [`reports/loco_cv.md`](reports/loco_cv.md).
+
+### Channel / gain robustness
+
+Microphone, room, and gain differences account for much of the LOCO collapse.
+Two mitigations are implemented in `augment.py` and `feature_norm.py`:
+
+- **Per-recording CMVN**: subtract each recording's mean feature vector
+  before scoring. Recordings with a single segment are left unchanged.
+- **Channel augmentation**: smooth 5-band EQ (±6 dB), soft 50–180 Hz and
+  3.8–7 kHz band limits, short synthetic reverb, and gain + `tanh` soft clip.
+  Augmented copies are added to training folds only.
+
+| Mode | Group CV | Donate | DBL | Dynamic | LOCO mean |
+|---|---:|---:|---:|---:|---:|
+| base | 76.6 / 41.9 | 79.6 / 22.6 | 20.3 / 19.3 | 21.3 / 36.2 | **40.4 / 26.0** |
+| cmvn | 68.2 / 35.4 | 81.0 / 27.8 | 19.9 / 19.4 | 52.4 / 29.0 | 51.1 / 25.4 |
+| rms + channel | 77.1 / 42.6 | 77.5 / 27.8 | 20.5 / 19.4 | 25.5 / 40.0 | 41.2 / 29.1 |
+| cmvn + channel | 72.2 / 40.5 | 84.3 / 39.0 | 20.3 / 19.3 | 53.5 / 50.5 | **52.7 / 36.3** |
+
+CMVN is the main gain: DynamicSuperb accuracy rises from 21.3% to 53.5% and
+Donate balanced accuracy from 22.6% to 39.0%. Channel augmentation adds
+roughly 3 pp balanced accuracy on top of CMVN. The trade-off is in-domain:
+group CV falls from 76.6% to 72.2%, so CMVN is a cross-device mode, not a
+free win for a single known microphone. DBL barely moves because only 52% of
+its segments belong to multi-segment recordings, and the rest cannot be
+CMVN-normalized.
+
+Live inference keeps a rolling 8-segment buffer per session, so the first
+segment runs without CMVN (`cmvn_warmup`). CMVN and CORAL are both
+transductive: they use unlabeled audio from the same recording or session.
+See [`reports/loco_robust.md`](reports/loco_robust.md) and
+`test_loco_robust.py`.
 
 The OOD gate is the containment measure: per-class Mahalanobis distance with
 recording-level calibration. On LOCO it flags about 90% of held-out segments

@@ -6,12 +6,16 @@ Loads the trained SVM classifier and provides:
   - get_cry_pattern_description(probabilities) -> text for the judge layer
 """
 import os
+import json
 import warnings
 warnings.filterwarnings("ignore")
+from collections import deque
 
 import numpy as np
 import librosa
 import joblib
+
+from train_combined_v2 import extract_features
 
 MODEL_DIR = os.path.expanduser("~/.config/cry-agent/models")
 SR = 16000
@@ -45,6 +49,22 @@ class CryAudioClassifier:
         self.pipeline = joblib.load(self.model_path)
         self.label_encoder = joblib.load(self.label_encoder_path)
         self.classes = list(self.label_encoder.classes_)
+        config_path = os.path.join(
+            os.path.dirname(self.model_path), "model_config.json"
+        )
+        self.model_config = {}
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                self.model_config = json.load(f)
+        self.feature_loudness = self.model_config.get(
+            "feature_loudness", "peak"
+        )
+        self.file_cmvn = bool(self.model_config.get("file_cmvn", False))
+        self.cmvn_min_segments = int(
+            self.model_config.get("cmvn_min_segments", 2)
+        )
+        self.cmvn_window = int(self.model_config.get("cmvn_window", 8))
+        self._cmvn_buffer = deque(maxlen=max(self.cmvn_window, 2))
 
         self.ood = None
         ood_path = os.path.expanduser(
@@ -77,40 +97,27 @@ class CryAudioClassifier:
         return self.set_family_adapter(joblib.load(os.path.expanduser(path)))
 
     def _extract_features(self, y, sr=None):
-        sr = sr or self.sample_rate
-        if sr != self.sample_rate:
-            y = librosa.resample(y, orig_sr=sr, target_sr=self.sample_rate)
-            sr = self.sample_rate
-        if len(y) < sr * 0.3:
-            return None
-        y = y / (np.max(np.abs(y)) + 1e-8)
+        return extract_features(
+            y, sr or self.sample_rate, loudness=self.feature_loudness
+        )
 
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-        delta1 = librosa.feature.delta(mfcc)
-        delta2 = librosa.feature.delta(mfcc, order=2)
-        centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
-        bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
-        rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)
-        flatness = librosa.feature.spectral_flatness(y=y)
-        zcr = librosa.feature.zero_crossing_rate(y)
-        rms = librosa.feature.rms(y=y)
-        f0, voiced, _ = librosa.pyin(y=y, sr=sr, fmin=80, fmax=500)
-        f0_v = f0[voiced] if voiced.any() else np.array([0])
-        f0_mean = f0_v.mean() if len(f0_v) > 0 else 0
-        f0_std = f0_v.std() if len(f0_v) > 0 else 0
-        voiced_ratio = voiced.sum() / len(voiced) if len(voiced) > 0 else 0
+    def reset_session(self):
+        self._cmvn_buffer.clear()
 
-        return np.concatenate([
-            mfcc.mean(axis=1), mfcc.std(axis=1),
-            delta1.mean(axis=1), delta2.mean(axis=1),
-            [centroid.mean(), centroid.std()],
-            [bandwidth.mean(), bandwidth.std()],
-            [rolloff.mean(), rolloff.std()],
-            [flatness.mean(), flatness.std()],
-            [zcr.mean(), zcr.std()],
-            [rms.mean(), rms.std()],
-            [f0_mean, f0_std, voiced_ratio],
-        ])
+    def _normalize_features(self, features):
+        """Apply file CMVN, or a rolling session buffer for live chunks."""
+        if not self.file_cmvn or not features:
+            return np.asarray(features), False
+        arr = np.asarray(features, dtype=np.float32)
+        if len(arr) >= self.cmvn_min_segments:
+            return arr - arr.mean(axis=0, keepdims=True), True
+
+        for feat in arr:
+            self._cmvn_buffer.append(feat)
+        if len(self._cmvn_buffer) >= self.cmvn_min_segments:
+            mean = np.mean(np.stack(self._cmvn_buffer), axis=0)
+            return arr - mean, True
+        return arr, False
 
     def _segments(self, y, sr=None):
         seg_len = int((sr or self.sample_rate) * self.segment_duration)
@@ -126,21 +133,26 @@ class CryAudioClassifier:
     def classify_array(self, y, sr):
         """Classify audio array. Returns aggregated result over segments."""
         segments = self._segments(y, sr)
-        probs_all = []
         features_all = []
         for seg in segments:
             feat = self._extract_features(seg, sr)
             if feat is not None:
-                proba = self.pipeline.predict_proba([feat])[0]
-                probs_all.append(proba)
                 features_all.append(feat)
 
-        if not probs_all:
+        if not features_all:
             return {"cause": "unknown", "confidence": 0.0, "probabilities": {}}
+
+        normalized, used_cmvn = self._normalize_features(features_all)
+        features_all = list(normalized)
 
         if self.family_adapter is not None:
             probs_all = [
                 self.family_adapter.predict_proba(np.array([feat]))[0]
+                for feat in features_all
+            ]
+        else:
+            probs_all = [
+                self.pipeline.predict_proba(np.array([feat]))[0]
                 for feat in features_all
             ]
 
@@ -160,6 +172,8 @@ class CryAudioClassifier:
             "confidence": round(confidence, 3),
             "probabilities": probabilities,
             "n_segments": len(probs_all),
+            "cmvn": bool(used_cmvn),
+            "cmvn_warmup": bool(self.file_cmvn and not used_cmvn),
         }
         if self.ood is not None and features_all:
             ood_scores = [self.ood.score_one(f) for f in features_all]
@@ -171,6 +185,7 @@ class CryAudioClassifier:
 
     def classify_file(self, path):
         """Classify a .wav file."""
+        self.reset_session()
         y, sr = librosa.load(path, sr=None)
         result = self.classify_array(y, sr)
         result["file"] = os.path.basename(path)
@@ -184,6 +199,12 @@ class CryAudioClassifier:
             feat = self._extract_features(seg, sr)
             if feat is not None:
                 feats.append(feat)
+        if self.file_cmvn and len(feats) >= self.cmvn_min_segments:
+            feats = list(
+                np.asarray(feats) - np.asarray(feats).mean(
+                    axis=0, keepdims=True
+                )
+            )
         return feats
 
     def get_cry_pattern(self, probabilities):

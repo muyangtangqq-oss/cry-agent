@@ -77,6 +77,8 @@ class CryAgentPipeline:
 
     def reset_session(self):
         self._ood_window.clear()
+        if self.audio_clf is not None:
+            self.audio_clf.reset_session()
 
     def run(
         self,

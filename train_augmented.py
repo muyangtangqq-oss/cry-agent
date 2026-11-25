@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 import joblib
 import librosa
 import numpy as np
-from imblearn.over_sampling import SVMSMOTE
+from imblearn.over_sampling import SMOTE, SVMSMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.metrics import (
     accuracy_score,
@@ -34,7 +34,8 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 
-from augment import augment
+from augment import augment, channel_augment
+from feature_norm import apply_file_means, apply_owner_means, file_mean_map
 from train_combined_v2 import (
     DBL_DIR,
     DONATE_DIR,
@@ -91,33 +92,38 @@ def load_raw(extra_dirs=None):
 
 
 def _featurize_one(args):
-    y, sr = args
-    return extract_features(y, sr)
+    y, sr, loudness = args
+    return extract_features(y, sr, loudness=loudness)
 
 
-def featurize(raw, jobs):
-    payload = [(y, SR) for y in raw]
+def featurize(raw, jobs, loudness="peak"):
+    payload = [(y, SR, loudness) for y in raw]
     if jobs <= 1:
         return [_featurize_one(p) for p in payload]
     with ProcessPoolExecutor(max_workers=jobs) as pool:
         return list(pool.map(_featurize_one, payload, chunksize=8))
 
 
-def make_pipeline(labels):
+def make_pipeline(labels, sampler="svmsmote", probability=True):
     counts = np.bincount(labels)
     counts = counts[counts > 0]
     k = max(1, min(3, int(counts.min()) - 1))
-    return ImbPipeline([
-        ("scaler", StandardScaler()),
-        ("smote", SVMSMOTE(random_state=42, k_neighbors=k)),
+    steps = [("scaler", StandardScaler())]
+    if sampler == "smote":
+        steps.append(("smote", SMOTE(random_state=42, k_neighbors=k)))
+    elif sampler == "svmsmote":
+        steps.append(("smote", SVMSMOTE(random_state=42, k_neighbors=k)))
+    steps.append(
         ("clf", SVC(
             C=1.0, kernel="rbf", gamma="scale",
-            class_weight="balanced", probability=True, random_state=42,
-        )),
-    ])
+            class_weight="balanced", probability=probability, random_state=42,
+        ))
+    )
+    return ImbPipeline(steps)
 
 
-def build_variants(raw, labels, target_per_class, max_per_source, jobs, seed=42):
+def build_variants(raw, labels, target_per_class, max_per_source, jobs,
+                   seed=42, loudness="peak", files=None, file_means=None):
     """Generate augmented features keyed by source index (training-only use)."""
     indices = defaultdict(list)
     for idx, label in enumerate(labels):
@@ -145,13 +151,43 @@ def build_variants(raw, labels, target_per_class, max_per_source, jobs, seed=42)
 
     print(f"  augmented copies: {len(flat)}  "
           f"by class: {dict(sorted(generated.items()))}")
-    feats = featurize(flat, jobs) if flat else []
+    feats = featurize(flat, jobs, loudness) if flat else []
+    valid = [(o, f) for o, f in zip(owners, feats) if f is not None]
+    owners = [o for o, _ in valid]
+    feats = [f for _, f in valid]
+    if feats and file_means is not None and files is not None:
+        feats = apply_owner_means(feats, owners, files, file_means)
 
     by_source = defaultdict(list)
     for owner, feat in zip(owners, feats):
         if feat is not None:
             by_source[owner].append(feat)
     return by_source, generated
+
+
+def build_channel_variants(raw, jobs, copies=1, loudness="peak",
+                           files=None, file_means=None):
+    """One or more channel-augmented copies of every training segment."""
+    if copies <= 0:
+        return {}, 0
+    flat, owners = [], []
+    for idx, segment in enumerate(raw):
+        for copy in range(copies):
+            flat.append(channel_augment(
+                segment, SR, seed=idx * 104729 + 17 + copy * 7919
+            ))
+            owners.append(idx)
+    feats = featurize(flat, jobs, loudness)
+    valid = [(o, f) for o, f in zip(owners, feats) if f is not None]
+    owners = [o for o, _ in valid]
+    feats = [f for _, f in valid]
+    if file_means is not None and files is not None:
+        feats = apply_owner_means(feats, owners, files, file_means)
+    by_source = defaultdict(list)
+    for owner, feat in zip(owners, feats):
+        if feat is not None:
+            by_source[owner].append(feat)
+    return by_source, len(flat)
 
 
 def expand_train(train_idx, base_feats, labels, variants):
@@ -205,14 +241,32 @@ def run(args):
     jobs = args.jobs or max(1, (os.cpu_count() or 2) - 1)
     print(f"\n[2/5] Extracting base features ({jobs} workers)...")
     t1 = time.time()
-    base_feats = featurize(raw, jobs)
+    loudness = "rms" if args.rms_loudness else "peak"
+    base_feats = featurize(raw, jobs, loudness)
+    file_means = None
+    if args.file_cmvn:
+        file_means = file_mean_map(base_feats, files)
+        base_feats = apply_file_means(base_feats, files, file_means)
+        covered = sum(
+            1 for path in files if file_means.get(path) is not None
+        )
+        print(f"  CMVN: {covered}/{len(files)} segments normalized")
     print(f"  done in {time.time() - t1:.0f}s")
 
     print("\n[3/5] Generating augmented variants...")
     t2 = time.time()
     variants, generated = build_variants(
-        raw, labels, args.target_per_class, args.max_per_source, jobs
+        raw, labels, args.target_per_class, args.max_per_source, jobs,
+        loudness=loudness, files=files, file_means=file_means,
     )
+    channel_copies = 0
+    if args.channel_augment:
+        channel_variants, channel_copies = build_channel_variants(
+            raw, jobs, args.channel_copies, loudness, files, file_means
+        )
+        for idx, feats in channel_variants.items():
+            variants[idx].extend(feats)
+        print(f"  channel-augmented copies: {channel_copies}")
     print(f"  done in {time.time() - t2:.0f}s")
 
     le = LabelEncoder()
@@ -229,13 +283,15 @@ def run(args):
         X_base = np.asarray([base_feats[i] for i in train_idx])
         X_aug, y_aug = expand_train(train_idx, base_feats, ye, variants)
 
-        base_pipe = make_pipeline(ye[train_idx])
+        base_pipe = make_pipeline(
+            ye[train_idx], args.sampler, probability=False
+        )
         base_pipe.fit(X_base, ye[train_idx])
         base_pred[test_idx] = base_pipe.predict(
             np.asarray([base_feats[i] for i in test_idx])
         )
 
-        aug_pipe = make_pipeline(y_aug)
+        aug_pipe = make_pipeline(y_aug, args.sampler, probability=False)
         aug_pipe.fit(X_aug, y_aug)
         aug_pred[test_idx] = aug_pipe.predict(
             np.asarray([base_feats[i] for i in test_idx])
@@ -273,7 +329,7 @@ def run(args):
 
     print("[5/5] Saving augmented model...")
     X_all, y_all = expand_train(np.arange(len(ye)), base_feats, ye, variants)
-    final = make_pipeline(y_all)
+    final = make_pipeline(y_all, args.sampler)
     final.fit(X_all, y_all)
     os.makedirs(args.output_dir, exist_ok=True)
     joblib.dump(final, os.path.join(args.output_dir, "cry_classifier.joblib"))
@@ -286,6 +342,15 @@ def run(args):
     )
     report = {
         "training": "donate+dbl+dynamic + minority augmentation",
+        "feature_loudness": loudness,
+        "file_cmvn": bool(args.file_cmvn),
+        "cmvn_min_segments": 2,
+        "cmvn_window": 8,
+        "channel_augment": {
+            "enabled": bool(args.channel_augment),
+            "copies": int(args.channel_copies),
+            "transforms": ["spectral_eq", "bandlimit", "reverb", "soft_clip"],
+        },
         "augmentation": {
             "target_per_class": args.target_per_class,
             "max_per_source": args.max_per_source,
@@ -293,6 +358,7 @@ def run(args):
             "transforms": ["pitch_shift", "time_stretch", "gain", "noise"],
         },
         "cv_folds": n_splits,
+        "sampler": args.sampler,
         "baseline": {
             "accuracy": round(base_metrics["accuracy"], 4),
             "balanced_accuracy": round(base_metrics["balanced_accuracy"], 4),
@@ -332,6 +398,15 @@ def main():
     parser.add_argument("--max-per-source", type=int, default=40)
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--jobs", type=int, default=0)
+    parser.add_argument("--rms-loudness", action="store_true",
+                        help="normalize loudness by RMS instead of peak")
+    parser.add_argument("--file-cmvn", action="store_true",
+                        help="subtract each recording's mean feature vector")
+    parser.add_argument("--channel-augment", action="store_true",
+                        help="add channel/EQ/reverb/saturation training copies")
+    parser.add_argument("--channel-copies", type=int, default=1)
+    parser.add_argument("--sampler", choices=["svmsmote", "smote", "none"],
+                        default="svmsmote")
     parser.add_argument("--output-dir", default=OUTPUT_DIR)
     parser.add_argument("--extra-data", action="append", default=[],
                         help="extra class-folder dataset (e.g. pilot export)")

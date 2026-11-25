@@ -177,21 +177,15 @@ def run_live(camera_index=0, mic_device=None, replay_audio=None,
             # Get audio segment
             audio_seg = audio_stream.get_segment()
 
-            if audio_seg is not None:
-                # Write to temp file for pipeline
-                import soundfile as sf
-                tmp = "/tmp/cry_live_segment.wav"
-                sf.write(tmp, audio_seg, 16000)
-                audio_path = tmp
-            elif replay_audio is None:
-                audio_path = None  # No audio available
-            else:
+            if audio_seg is None and replay_audio is not None:
                 print(f"[{cycle:3d}] Audio replay finished.")
                 break
+            audio_array = audio_seg
 
             # Run pipeline
             result = pipeline.run(
-                audio_path=audio_path,
+                audio_array=audio_array,
+                sr=16000,
                 postures=detected_postures,
                 face_state=face_state,
                 room_temp=room_temp,
@@ -215,10 +209,6 @@ def run_live(camera_index=0, mic_device=None, replay_audio=None,
                   f"via {result.model}{override}{escalate}{ood}")
             print(f"  Latency: {result.latency_ms:.0f}ms")
             print()
-
-            # Clean up temp
-            if audio_seg is not None and os.path.exists("/tmp/cry_live_segment.wav"):
-                os.unlink("/tmp/cry_live_segment.wav")
 
             # Wait for next cycle
             elapsed = time.time() - t0

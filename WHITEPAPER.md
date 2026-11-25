@@ -139,6 +139,35 @@ Consequences:
 - The family pilot is now a necessity, not a nice-to-have.
 - See `reports/loco_cv.md` and `test_loco.py`.
 
+#### Channel / gain robustness
+
+Recording-level normalization targets the part of the shift that comes from
+microphone gain, room response, and distance rather than from the cry itself:
+
+- **CMVN** subtracts each recording's mean feature vector. Files with a
+  single segment are left unchanged.
+- **Channel augmentation** applies a smooth 5-band EQ (±6 dB), soft band
+  limiting, short synthetic reverb, and gain with `tanh` soft clipping.
+  Copies enter training folds only; evaluation stays clean.
+
+| Mode | Group CV | Donate | DBL | Dynamic | LOCO mean |
+|---|---:|---:|---:|---:|---:|
+| base | 76.6 / 41.9 | 79.6 / 22.6 | 20.3 / 19.3 | 21.3 / 36.2 | 40.4 / 26.0 |
+| cmvn | 68.2 / 35.4 | 81.0 / 27.8 | 19.9 / 19.4 | 52.4 / 29.0 | 51.1 / 25.4 |
+| rms + channel | 77.1 / 42.6 | 77.5 / 27.8 | 20.5 / 19.4 | 25.5 / 40.0 | 41.2 / 29.1 |
+| cmvn + channel | 72.2 / 40.5 | 84.3 / 39.0 | 20.3 / 19.3 | 53.5 / 50.5 | **52.7 / 36.3** |
+
+CMVN recovers most of the cross-corpus gap (LOCO mean 40.4% → 52.7%,
+balanced 26.0% → 36.3%). The cost is in-domain: group CV drops from 76.6%
+to 72.2%. CMVN therefore belongs behind a per-deployment switch for unknown
+or changing hardware, not as the default for a single calibrated microphone.
+DBL remains near chance because only 51.9% of its segments belong to
+multi-segment recordings and single-segment files cannot be normalized.
+
+Both CMVN and CORAL are transductive: they use unlabeled audio from the same
+recording or live session. Live inference needs a warm-up of two segments
+before the rolling buffer is active. See `reports/loco_robust.md`.
+
 ### OOD Gate
 
 Per-class Mahalanobis distance with recording-level calibration (85th
@@ -325,9 +354,11 @@ as discomfort; the rooting posture overrode both to hungry. Aggregate:
   an upper bound. LOCO is now implemented; a household holdout still requires
   pilot data.
 - **Severe cross-corpus domain shift:** LOCO mean is 40.4% accuracy / 26.0%
-  balanced, below the 74.5% majority baseline. The current model is not
-  transferable across collection setups. The OOD gate catches ~90% at a 15%
-  false-alarm rate, but the trusted remainder is still 16–19% accurate.
+  balanced, below the 74.5% majority baseline. Per-recording CMVN plus
+  channel augmentation lifts this to 52.7% / 36.3%, still far from a solved
+  transfer problem and at the cost of in-domain accuracy (group CV
+  76.6% → 72.2%). The OOD gate catches ~90% at a 15% false-alarm rate, but
+  the trusted remainder is still 16–19% accurate.
 
 **Family calibration changes the picture.** With 30% of a held-out corpus's
 recordings used as parent-labelled calibration (split by recording, 5 seeds),
@@ -358,9 +389,10 @@ problem, not evidence of home accuracy.
 4. ⏳ **Model export:** SVM → ONNX/TFLite for optimized edge inference.
 5. ⏳ **Multi-baby tracking:** ByteTrack + ReID for multi-child scenarios.
 6. ⏳ **Long-term pattern discovery:** weekly/monthly anomaly detection.
-7. 🟡 **Domain adaptation:** per-family CORAL / prototype calibration is
-   implemented and lifts LOCO mean to 57.6% acc / 44.1% bal. Remaining:
-   label-semantics audit, channel/room augmentation, and validation on real
+7. 🟡 **Domain adaptation:** per-family CORAL / prototype calibration lifts
+   LOCO mean to 57.6% acc / 44.1% bal; per-recording CMVN + channel
+   augmentation lifts the uncalibrated model to 52.7% / 36.3%. Remaining:
+   combining both under one calibration policy, and validation on real
    households.
 8. ✅ **OOD containment:** per-class Mahalanobis gate + session-level shift
    detection; prevents confident output from a clearly shifted corpus.

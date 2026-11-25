@@ -31,10 +31,14 @@ DONATE_MAP = {"belly_pain":"pain","burping":"burp","discomfort":"discomfort","hu
 DUNSTAN_MAP = {"neh":"hungry","owh":"sleepy","heh":"discomfort","eairh":"pain","eh":"burp"}
 # DynamicSuperb already mapped by directory name
 
-def extract_features(y, sr=SR):
+def extract_features(y, sr=SR, loudness="peak"):
     if sr != SR: y = librosa.resample(y, orig_sr=sr, target_sr=SR); sr = SR
     if len(y) < sr * 0.3: return None
-    y = y / (np.max(np.abs(y)) + 1e-8)
+    if loudness == "rms":
+        rms = np.sqrt(np.mean(y ** 2)) + 1e-8
+        y = y / rms * 0.1
+    else:
+        y = y / (np.max(np.abs(y)) + 1e-8)
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
     d1 = librosa.feature.delta(mfcc); d2 = librosa.feature.delta(mfcc, order=2)
     cent = librosa.feature.spectral_centroid(y=y, sr=sr)
