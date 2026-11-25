@@ -332,6 +332,23 @@ transductive: they use unlabeled audio from the same recording or session.
 See [`reports/loco_robust.md`](reports/loco_robust.md) and
 `test_loco_robust.py`.
 
+The robust model needs a matching OOD detector. Scoring OOD on CMVN features
+drops mean LOCO AUC from 0.95 to about 0.70, because CMVN also removes the
+recording-level offset the gate uses. The shipped robust detector therefore
+classifies on RMS + CMVN but scores OOD on raw RMS:
+
+| Held-out corpus | AUC | TPR@15% FPR | Gate rate |
+|---|---:|---:|---:|
+| Donate | 1.000 | 100% | 100% |
+| InfantCry-DBL | 0.924 | 85% | 85% |
+| DynamicSuperb | 0.915 | 88% | 88% |
+| **mean** | **0.946** | **91%** | **91%** |
+
+The robust model lives in `~/.config/cry-agent/models_robust/` and is not the
+production default. Enable it per run with
+`CRY_AGENT_MODEL_DIR=~/.config/cry-agent/models_robust`. See
+[`reports/ood_gate_robust.md`](reports/ood_gate_robust.md).
+
 The OOD gate is the containment measure: per-class Mahalanobis distance with
 recording-level calibration. On LOCO it flags about 90% of held-out segments
 at a 15% false-alarm rate (AUC 0.944), but the 14–16% that pass are still only

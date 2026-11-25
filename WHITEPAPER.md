@@ -195,6 +195,15 @@ The gate catches about 90% of held-out corpus segments, but the remaining
 This is containment, not a cure. A gate cannot recover acoustic information
 that the model never learned.
 
+For the channel-robust model the gate is fitted on **raw RMS** features,
+while the classifier consumes RMS + CMVN. This is deliberate: CMVN removes
+the recording-level offset that the gate uses, and scoring OOD on CMVN
+features drops mean LOCO AUC from 0.946 to about 0.70. The paired detector
+keeps AUC 1.000 / 0.924 / 0.915 across the three held-out corpora with a
+91% gate rate at 15% false alarms. It is saved alongside the robust model
+and selected automatically through `ood_on_raw_features` in
+`model_config.json`. See `reports/ood_gate_robust.md`.
+
 ### Multimodal Fusion
 
 | Scenario | Audio | Vision | Result | Mechanism |
@@ -420,6 +429,10 @@ python jev_client.py        # live Jev smoke test (jev-1.14.0)
 python test_full_pipeline.py
 python test_scenario_engine.py
 python test_loco.py
+python test_loco_robust.py
+python train_augmented.py --rms-loudness --file-cmvn --channel-augment \
+  --sampler smote --output-dir ~/.config/cry-agent/models_robust
+python train_ood.py --robust
 python test_adaptation.py --seeds 5
 python test_family_calibrator.py
 python test_ood.py

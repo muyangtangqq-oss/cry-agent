@@ -32,6 +32,8 @@ numbers are not directly comparable. The fair comparison is the LOCO table
 above, where every mode uses the same folds and pipeline.
 
 The robust model is written to `~/.config/cry-agent/models_robust/` and is
-**not promoted**. It has no OOD detector yet, so deploying it as-is would
-disable the containment gate. Use it only after fitting an OOD detector on
-the same RMS + CMVN feature bank.
+**not promoted**. Its OOD detector is fitted on raw RMS features while the
+classifier uses RMS + CMVN, because CMVN removes the recording-level offset
+the gate relies on. That pairing keeps LOCO AUC at 1.000 / 0.924 / 0.915
+(mean 0.946, 91% gate rate at 15% false alarms); scoring OOD on CMVN
+features drops the mean to about 0.70. See `reports/ood_gate_robust.md`.

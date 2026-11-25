@@ -60,6 +60,9 @@ class CryAudioClassifier:
             "feature_loudness", "peak"
         )
         self.file_cmvn = bool(self.model_config.get("file_cmvn", False))
+        self.ood_on_raw = bool(
+            self.model_config.get("ood_on_raw_features", False)
+        )
         self.cmvn_min_segments = int(
             self.model_config.get("cmvn_min_segments", 2)
         )
@@ -142,6 +145,7 @@ class CryAudioClassifier:
         if not features_all:
             return {"cause": "unknown", "confidence": 0.0, "probabilities": {}}
 
+        raw_features = list(features_all)
         normalized, used_cmvn = self._normalize_features(features_all)
         features_all = list(normalized)
 
@@ -176,7 +180,8 @@ class CryAudioClassifier:
             "cmvn_warmup": bool(self.file_cmvn and not used_cmvn),
         }
         if self.ood is not None and features_all:
-            ood_scores = [self.ood.score_one(f) for f in features_all]
+            ood_feats = raw_features if self.ood_on_raw else features_all
+            ood_scores = [self.ood.score_one(f) for f in ood_feats]
             worst = float(max(ood_scores))
             result["ood_score"] = round(worst, 3)
             result["ood_threshold"] = round(float(self.ood.threshold), 3)

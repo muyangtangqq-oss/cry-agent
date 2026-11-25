@@ -80,6 +80,40 @@ def test_classify_array_normalizes_before_predicting():
     assert np.allclose(captured[1], [1.0, 1.0])
 
 
+def test_ood_scores_raw_features_when_configured():
+    seen = []
+    clf = CryAudioClassifier.__new__(CryAudioClassifier)
+    clf.file_cmvn = True
+    clf.ood_on_raw = True
+    clf.cmvn_min_segments = 2
+    clf._cmvn_buffer = deque(maxlen=8)
+    clf.family_adapter = None
+    clf.classes = ["hungry", "pain"]
+    clf._segments = lambda y, sr: [np.zeros(2), np.zeros(2)]
+    feats = iter([np.array([1.0, 2.0]), np.array([3.0, 4.0])])
+    clf._extract_features = lambda seg, sr: next(feats)
+
+    class FakePipeline:
+        def predict_proba(self, X):
+            return np.array([[0.7, 0.3]])
+
+    class FakeOOD:
+        threshold = 0.5
+
+        def score_one(self, feat):
+            seen.append(np.asarray(feat).copy())
+            return 0.1
+
+    clf.pipeline = FakePipeline()
+    clf.ood = FakeOOD()
+    result = clf.classify_array(np.zeros(4, dtype=np.float32), SR)
+
+    assert result["cmvn"] is True
+    assert result["ood"] is False
+    assert np.allclose(seen[0], [1.0, 2.0])
+    assert np.allclose(seen[1], [3.0, 4.0])
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
