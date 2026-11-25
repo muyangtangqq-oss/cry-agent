@@ -1,7 +1,7 @@
 # Cry-Agent
 
 Agentic baby cry cause diagnosis with multimodal signal fusion,
-layered judgment (Tachyone local → Jev cloud), and self-learning.
+layered judgment (Tachyone local → cloud judge), and self-learning.
 
 ## Architecture
 
@@ -16,9 +16,9 @@ USB → Noise level                                   ┘
                                                      │
                                                      ▼
                                           Layered Judge
-                                          ├─ conf ≥ 0.85 → direct
-                                          ├─ 0.40-0.85 → Tachyone
-                                          └─ < 0.40 → Jev
+                                          ├─ fused ≥ 0.85 → fusion direct
+                                          ├─ Tachyone conf ≥ 0.70 → Tachyone
+                                          └─ otherwise → cloud judge
                                                      │
                                                      ▼
                                           App notification
@@ -33,8 +33,8 @@ Tachyone and Jev speak the same TypeSafe System One **v1** wire protocol
 | Tier | Engine | Measured latency | Role |
 |------|--------|------------------|------|
 | 1 | Fusion | ~0 ms | multi-source agreement → direct output |
-| 2 | Tachyone (local) | 0–10 ms | structured audio/fusion/context scoring |
-| 3 | Jev `jev-1.14.0` (cloud) | 300–600 ms | genuinely ambiguous cases |
+| 2 | Tachyone (local) | 1–12 ms | structured audio/fusion/context scoring |
+| 3 | Jev `jev-1.14.0` (cloud) | ~300–600 ms reachable; 1.5 s first 451 retry | genuinely ambiguous cases |
 
 Escalation is tiered: Tachyone answers directly at ≥ 0.70, otherwise Jev is
 asked and its answer wins when it comes back valid. Raw confidences are not
@@ -281,8 +281,8 @@ with 5 simulated families.
 | DBL regression | 97.0% (held-in corpus, not a clean holdout) |
 | Group 5-fold by recording | 76.6% acc / 41.9% balanced (majority 74.5%) |
 | Leave-one-corpus-out mean | **40.4% acc / 26.0% balanced** (majority 74.5%) |
-| Audio inference latency | ~200ms |
-| Full pipeline latency | ~600ms |
+| Audio inference latency | ~190 ms warm; ~1.3 s first call |
+| Full pipeline latency | ~200–290 ms warm; ~1.1 s first segment |
 
 CV splits are segment-level; segments from the same recording may land in
 different folds, so these numbers are an upper bound. See

@@ -43,10 +43,10 @@ the whole session untrusted when 8 of the last 12 clips are OOD.
 **Layered judge (escalation chain):**
 
 1. **Fusion direct** (confidence ≥ 0.85): Multi-source agreement → immediate output
-2. **Tachyone local** (0.40-0.85): Local engine scores audio, fusion and context
-   directly; resolves high-confidence cases in 0–10 ms
-3. **Jev cloud** (< 0.40, or Tachyone < 0.70): TypeSafe System One v1
-   (`jev-1.14.0`), 300–600 ms, used only for genuinely ambiguous cases
+2. **Tachyone local** (fused < 0.85): Local engine scores audio, fusion and
+   context; resolves its own ≥ 0.70 cases in 1–12 ms
+3. **Cloud judge** (Tachyone < 0.70 or disagreement): TypeSafe System One v1
+   (`jev-1.14.0`), ~300–600 ms when reachable, 1.5 s on the first 451 retry
 
 Both engines speak the same v1 wire protocol (`state` + `questions` → typed
 `answers`), so `/v1/systemone` can be pointed at either one. Tachyone now reads
@@ -68,10 +68,10 @@ they are not calibrated against each other.
 
 **Disagreement escalation:** When top-2 causes are within 15% of each other, the system flags `escalate` instead of guessing. This routes to Tachyone → Jev for deeper reasoning.
 
-**Honest uncertainty:** Confidence < 0.40 or audio OOD → system outputs
-"unknown" rather than guessing. A session-level gate catches corpus shift
-even when individual clips slip through. This prevents false confidence and
-builds parent trust.
+**Honest uncertainty:** Low confidence is escalated to Tachyone, then to the
+cloud judge; it never becomes a direct answer. Audio OOD (or a session-level
+shift) outputs `unknown` / `fusion-nonaudio` rather than guessing. The session
+gate catches corpus shift even when individual clips slip through.
 
 ## 3. Validation
 
@@ -258,8 +258,8 @@ as discomfort; the rooting posture overrode both to hungry. Aggregate:
 |-----------|-----------|-------|
 | Audio classification | scikit-learn SVM + librosa | 95 MFCC + spectral features |
 | Posture detection | MediaPipe BlazePose | 33 body landmarks → 13 postures |
-| Local judge | Tachyone (heuristic engine) | 0–10 ms, edge-deployable, v1 protocol |
-| Cloud judge | Jev / TypeSafe System One v1 | `jev-1.14.0`, 300–600 ms via Magpie |
+| Local judge | Tachyone (heuristic engine) | 1–12 ms, edge-deployable, v1 protocol |
+| Cloud judge | Jev / TypeSafe System One v1 | `jev-1.14.0`, ~300–600 ms reachable; 1.5 s first 451 retry |
 | Self-learning | Bandit algorithm + SQLite | Signal weight adjustment |
 | API server | FastAPI + uvicorn | REST + WebSocket |
 | Dashboard | HTML/CSS/JS | Real-time results + feedback |

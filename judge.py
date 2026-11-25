@@ -3,11 +3,9 @@
 Architecture:
   audio → CryAudioClassifier
     ├─ confidence ≥ 0.80 → output directly
-    ├─ confidence 0.40-0.80 → escalate to Tachyone (fuse with context)
-    │    ├─ Tachyone ≥ 0.70 → output
-    │    ├─ Tachyone 0.40-0.70 → escalate to Jev
-    │    └─ Tachyone < 0.40 → flag unknown / try Jev
-    └─ confidence < 0.40 → go straight to Jev
+    └─ confidence < 0.80 → Tachyone (fuse with context)
+         ├─ Tachyone ≥ 0.70 → output
+         └─ Tachyone < 0.70 → escalate to the cloud judge
 """
 import time
 from dataclasses import dataclass
