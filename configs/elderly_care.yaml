@@ -108,7 +108,7 @@ judge:
     model: "typesafe/jev-latest"
     api_key_from: "magpie_providers"
   thresholds:
-    direct_output: 0.85    # higher threshold — elder care needs more certainty
+    direct_output: 0.85    # elder care needs high certainty before direct output
     tachyone_high: 0.70
     tachyone_low: 0.40
 

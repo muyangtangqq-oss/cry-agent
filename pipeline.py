@@ -60,7 +60,7 @@ class CryAgentPipeline:
         self.context_ext = self.scenario.build_context_extractor()
         self.env_ext = self.scenario.build_env_extractor()
         self.fuser = self.scenario.build_fuser()
-        self.direct_threshold = self.scenario.threshold("direct_output", 0.80)
+        self.direct_threshold = self.scenario.threshold("direct_output", 0.85)
         self.tachyone_high = self.scenario.threshold("tachyone_high", 0.70)
         self.tachyone_low = self.scenario.threshold("tachyone_low", 0.40)
         self.tachyone = TachyoneClient(cfg)

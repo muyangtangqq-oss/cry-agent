@@ -5,6 +5,7 @@ is the only cause with evidence. Confidence must combine vote share with
 absolute evidence mass, and multi-source agreement must still boost it.
 """
 from multimodal_signals import MultimodalFuser, Signal
+from scenario_engine import Scenario
 
 
 def fuse(*signals):
@@ -72,6 +73,25 @@ def test_confidence_is_bounded():
         Signal("env", "hungry", 1.0, "env"),
     )
     assert 0.0 <= worst["fused_confidence"] <= 0.98, worst
+
+
+def test_direct_threshold_operating_points():
+    scenario = Scenario.load("baby_cry")
+    threshold = scenario.threshold("direct_output", 0.85)
+    assert threshold == 0.85, threshold
+
+    two_sources = fuse(
+        Signal("audio", "hungry", 0.60, "audio"),
+        Signal("vision", "hungry", 0.60, "vision"),
+    )
+    assert two_sources["fused_confidence"] == threshold, two_sources
+
+    three_sources = fuse(
+        Signal("audio", "hungry", 0.40, "audio"),
+        Signal("vision", "hungry", 0.40, "vision"),
+        Signal("context", "hungry", 0.40, "context"),
+    )
+    assert three_sources["fused_confidence"] == threshold, three_sources
 
 
 if __name__ == "__main__":

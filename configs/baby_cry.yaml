@@ -109,7 +109,9 @@ judge:
     model: "typesafe/jev-latest"
     api_key_from: "magpie_providers"  # read from ~/.config/magpie/providers.json
   thresholds:
-    direct_output: 0.80
+    # Calibrated for share x evidence confidence: two sources at >=60%,
+    # or three sources at >=40%, are required for a direct answer.
+    direct_output: 0.85
     tachyone_high: 0.70
     tachyone_low: 0.40
 

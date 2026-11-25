@@ -214,7 +214,7 @@ class Scenario:
             ),
             critical_override=fusion.get("critical_override"),
             env_override=fusion.get("env_override"),
-            escalate_confidence=self.threshold("direct_output", 0.80),
+            escalate_confidence=self.threshold("direct_output", 0.85),
         )
 
     def summary(self) -> str:
@@ -230,7 +230,7 @@ class Scenario:
             f"({len(self.context_cfg.get('fields', []))} fields)",
             f"  env: {'on' if self.env_enabled else 'off'} "
             f"({len(self.env_cfg.get('sensors', {}))} sensors)",
-            f"  thresholds: direct={self.threshold('direct_output', 0.80):.2f} "
+            f"  thresholds: direct={self.threshold('direct_output', 0.85):.2f} "
             f"tachyone={self.threshold('tachyone_high', 0.70):.2f} "
             f"low={self.threshold('tachyone_low', 0.40):.2f}",
             f"  fusion weights: {self.fusion_cfg.get('weights', {})}",

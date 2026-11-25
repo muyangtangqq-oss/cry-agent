@@ -42,8 +42,8 @@ the whole session untrusted when 8 of the last 12 clips are OOD.
 
 **Layered judge (escalation chain):**
 
-1. **Fusion direct** (confidence ≥ 0.80): Multi-source agreement → immediate output
-2. **Tachyone local** (0.40-0.80): Local engine scores audio, fusion and context
+1. **Fusion direct** (confidence ≥ 0.85): Multi-source agreement → immediate output
+2. **Tachyone local** (0.40-0.85): Local engine scores audio, fusion and context
    directly; resolves high-confidence cases in 0–10 ms
 3. **Jev cloud** (< 0.40, or Tachyone < 0.70): TypeSafe System One v1
    (`jev-1.14.0`), 300–600 ms, used only for genuinely ambiguous cases
@@ -190,26 +190,30 @@ normalized scores, so weak evidence no longer looks like disagreement.
 
 | Scenario | Chain | Winner |
 |----------|-------|--------|
-| Low-conf hungry | audio(45%) → tachyone(95%) | Tachyone ✓ |
-| Low-conf sleepy | audio(50%) → tachyone(95%) | Tachyone ✓ |
-| Ambiguous equal split | audio(35%) → tachyone(66%) → jev(35%) | Jev ✓ |
+| Low-conf hungry | audio(45%) → tachyone(85%) | Tachyone ✓ |
+| Low-conf sleepy | audio(50%) → tachyone(93%) | Tachyone ✓ |
+| Ambiguous equal split | audio(35%) → tachyone(66%) → jev(36%) | Jev ✓ |
 | Post-feed burp | audio(42%) → tachyone(79%) | Tachyone ✓ |
 | Evening colic | audio(48%) → tachyone(87%) | Tachyone ✓ |
-| Uniform low confidence | audio(20%) → tachyone(57%) → jev(52%) | Jev (uncertain) |
+| Uniform low confidence | audio(20%) → tachyone(57%) → jev(29%) | Jev (uncertain) |
 
 **Key result:** the local tier resolved 4/6 cases in ≤ 10 ms; the two
-genuinely ambiguous cases escalated to Jev (`jev-1.14.0`) at ~280–360 ms.
-Accuracy on the 5 evaluable scenarios was 5/5.
+genuinely ambiguous cases escalated to Jev. In this region-blocked run Jev
+returned mock answers (the first call waited ~1.5 s through the 451 retry,
+then the 45 s cooldown answered instantly). Accuracy on the 5 evaluable
+scenarios was 5/5.
 
-### Self-Learning (7-day simulation)
+### Self-Learning (14-day simulation)
 
 | Day | Accuracy | Cry Library Size | Top Signal Weight |
 |-----|----------|-----------------|-------------------|
-| 1 | 96% | 40 | cry_pattern: 0.38 |
-| 4 | 100% | 162 | cry_pattern: 0.29 |
-| 7 | 95% | 280 | cry_pattern: 0.27 |
+| 1 | 100% | 15 | cry_pattern: 0.40 |
+| 4 | 100% | 60 | cry_pattern: 0.40 |
+| 7 | 100% | 105 | cry_pattern: 0.38 |
 
-**Key result:** Signal weights shifted from cry_pattern (0.38→0.27) toward context (0.16→0.23), showing the system learned that context became more reliable over time.
+**Key result:** over 14 days (15 events/day), the signal weights shifted from
+cry_pattern (0.40→0.33) toward posture (0.30→0.34), context and time pattern
+(0.15→0.17 each). Early accuracy was 100%, late accuracy 97%.
 
 ### Real-World Pilot Kit
 
@@ -231,20 +235,22 @@ This is deliberately local-first. No family data has been collected yet.
 | Metric | Value |
 |--------|-------|
 | Pipeline accuracy | 6/6 scenarios (100%) |
-| Average latency | 155–670ms per segment (warm, scenario-dependent) |
-| Models used | fusion (direct), tachyone (fallback), jev (complex) |
-| Critical overrides | 1/6 (vision corrected audio) |
+| Average latency | 200–290ms warm; ~1.1s first segment (model warm-up) |
+| Models used | fusion 4, tachyone 2; Jev not needed in this run |
+| Critical overrides | 2/6 (vision/env corrected audio) |
 
 ### Live Replay Demo
 
 | Segment | Audio Confidence | Fused Confidence | Model |
 |---------|-----------------|-----------------|-------|
-| 0 (0-2s) | hungry 98% | hungry 98% | fusion |
-| 1 (2-4s) | hungry 68% | hungry 93% | fusion |
-| 2 (4-6.9s) | hungry 88% | hungry 98% | fusion |
-| 3 (audio wrong) | burp 39% | hungry 95% | fusion [OVERRIDE] |
+| 0 (0-2s) | discomfort 78% | hungry 95% | fusion [OVERRIDE] |
+| 1 (2-4s) | discomfort 59% | hungry 95% | fusion [OVERRIDE] |
+| 2 (4-6.9s) | hungry 80% | hungry 95% | fusion |
 
-**Key result:** Segment 3 audio classifier misidentified as burp, but vision (rooting posture) triggered critical override, correctly identifying hungry.
+Real Donate-a-Cry hungry clip (`999bf14b-…-hu.wav`), replayed with
+`--postures rooting`. The first two segments were acoustically misclassified
+as discomfort; the rooting posture overrode both to hungry. Aggregate:
+3/3 hungry, 95% average confidence, 120ms per segment, 2 overrides.
 
 ## 4. Technology Stack
 
