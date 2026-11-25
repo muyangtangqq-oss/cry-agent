@@ -77,6 +77,10 @@ DEFAULT_ENV_SENSORS = {
 
 DEFAULT_WEIGHTS = {"audio": 0.40, "vision": 0.30, "context": 0.20, "env": 0.10}
 DEFAULT_AGREEMENT_BOOST = {"two_sources": 0.15, "three_sources": 0.25}
+# Weighted mass at which the evidence is considered fully strong. Without
+# this attenuation, normalizing by `total` would turn a single weak source
+# (the only cause with any score) into 100% confidence.
+FULL_EVIDENCE_MASS = 0.60
 DEFAULT_CRITICAL_OVERRIDE = {
     "enabled": True,
     "min_vision_confidence": 0.0,
@@ -343,7 +347,16 @@ class MultimodalFuser:
         best_cause, best_score = ranked[0]
         second_cause, second_score = ranked[1] if len(ranked) > 1 else ("", 0)
         total = sum(cause_scores.values())
-        confidence = best_score / max(total, 1)
+        # Confidence is the winner's share of the weighted vote, attenuated
+        # when the absolute evidence mass is low. `total` is always <= 1
+        # because the weights sum to 1, so `max(total, 1)` used to make the
+        # division a no-op and leaked the raw weighted score as confidence.
+        share = best_score / max(total, 1e-9)
+        weight_mass = sum(self.weights.values()) or 1.0
+        strength = min(
+            1.0, total / (FULL_EVIDENCE_MASS * weight_mass)
+        )
+        confidence = share * strength
 
         # Multi-source agreement boost
         agreeing_sources = set()
@@ -415,7 +428,7 @@ class MultimodalFuser:
                 critical_override = True
 
         # Disagreement escalation
-        margin = (best_score - second_score) / max(total, 1)
+        margin = (best_score - second_score) / max(total, 1e-9)
         escalate = (
             margin < self.escalate_threshold
             and confidence < self.escalate_confidence

@@ -171,13 +171,20 @@ that the model never learned.
 | Scenario | Audio | Vision | Result | Mechanism |
 |----------|-------|--------|--------|-----------|
 | Hungry (3 sources agree) | hungry 75% | hungry 95% | hungry 98% ✓ | Multi-source boost |
-| Sleepy (3 sources agree) | sleepy 60% | sleepy 97% | sleepy 88% ✓ | Multi-source boost |
+| Sleepy (3 sources agree) | sleepy 60% | sleepy 97% | sleepy 98% ✓ | Multi-source boost |
 | Pain (audio wrong) | hungry 55% | pain 97% [CRIT] | pain 95% ✓ | Critical override |
-| Startle (env+vision) | startle 40% | startle 95% | startle 75% ✓ | Multi-source boost |
+| Startle (env+vision) | startle 40% | startle 95% | startle 98% ✓ | Multi-source boost |
 | Cold (env+vision) | discomfort 50% | temperature 85% | temperature 75% ✓ | Env override + escalate |
 | Lonely (audio 98% wrong) | hungry 98% | lonely 95% [CRIT] | lonely 85% ✓ | Critical override |
 
 **Key result:** Vision correctly overrode audio in 3/6 scenarios, including one where audio was 98% confident in the wrong answer.
+
+Fusion confidence is the winner's share of the weighted vote multiplied by an
+evidence-strength term that saturates at 60% of the total source weight;
+agreement boosts are applied after that. This keeps a lone weak source from
+being normalized into 100% confidence, while two strong agreeing sources can
+still reach the direct-output tier. Top-2 margin is computed on the same
+normalized scores, so weak evidence no longer looks like disagreement.
 
 ### Layered Judge Fallback
 

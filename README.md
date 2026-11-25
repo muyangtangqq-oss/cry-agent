@@ -106,6 +106,7 @@ python train_ood.py
 
 # Test without hardware
 python tachyone_server.py 8901 &
+python test_fusion.py           # confidence calibration: vote share × evidence
 python test_full_pipeline.py    # 6 scenarios, real audio
 python test_ood.py              # gate: normal vs noise vs session shift
 python live_replay.py <wav> --postures rooting  # streaming simulation
